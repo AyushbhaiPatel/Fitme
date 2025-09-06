@@ -42,7 +42,7 @@ const Onboarding = () => {
     let value = e.target.value;
     if (input === 'birthday') {
       // If user enters date in DD/MM/YYYY or D/M/YYYY format, convert to YYYY-MM-DD
-      const match = value.match(/^(\d{1,2})[\/](\d{1,2})[\/](\d{4})$/);
+      const match = value.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
       if (match) {
         const [, day, month, year] = match;
         const paddedDay = day.padStart(2, '0');

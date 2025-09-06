@@ -32,8 +32,8 @@ const Login = () => {
   const [errors, setErrors] = useState({});
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
-  const [lastError, setLastError] = useState(null);
-  const [retryCount, setRetryCount] = useState(0);
+  const [, setLastError] = useState(null);
+  const [, setRetryCount] = useState(0);
   const [showOTPVerification, setShowOTPVerification] = useState(false);
   const [unverifiedEmail, setUnverifiedEmail] = useState('');
 

@@ -1,5 +1,5 @@
 // pages/Register.jsx
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { motion } from 'framer-motion';
@@ -123,7 +123,7 @@ const Register = () => {
         console.log('❌ Registration failed:', result);
         setErrors({ submit: result.message || 'Registration failed' });
       }
-    } catch (error) {
+    } catch {
       setErrors({ submit: 'An unexpected error occurred' });
     } finally {
       setLoading(false);

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { FiBookmark, FiTarget, FiTrendingUp, FiClock } from 'react-icons/fi';
 import DayPlan from '../components/NutritionPage_Component/DayPlan';
 import RecipeModal from '../components/NutritionPage_Component/RecipeModal';
@@ -48,7 +48,11 @@ const Nutrition = () => {
             }
 
             // Persist immediately so refresh keeps manual meals without explicit save
-            try { mealPlanPersistence.savePlan(updatedPlan, null, true); } catch {}
+            try {
+                mealPlanPersistence.savePlan(updatedPlan, null, true);
+            } catch (error) {
+                console.error('Failed to auto-save updated meal plan:', error);
+            }
             return updatedPlan;
         });
         showToast('success', 'Meal added successfully!');
@@ -70,7 +74,11 @@ const Nutrition = () => {
                 delete updated[mealType];
             }
             // Persist immediately
-            try { mealPlanPersistence.savePlan(updated, null, true); } catch {}
+            try {
+                mealPlanPersistence.savePlan(updated, null, true);
+            } catch (error) {
+                console.error('Failed to auto-save after meal deletion:', error);
+            }
             return updated;
         });
         showToast('success', 'Meal removed.');
@@ -296,4 +304,3 @@ const Nutrition = () => {
 };
 
 export default Nutrition;
-

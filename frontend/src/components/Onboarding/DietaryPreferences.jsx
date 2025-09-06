@@ -1,7 +1,7 @@
 import React, { useMemo } from 'react';
 import { motion } from 'framer-motion';
 
-const DietaryPreferences = ({ nextStep, prevStep, handleChange, values }) => {
+const DietaryPreferences = ({ nextStep, prevStep, values }) => {
   const error = useMemo(() => (!values.dietaryPreference ? 'Please select a dietary preference' : ''), [values.dietaryPreference]);
   const dietTypes = [
     'No Restrictions',

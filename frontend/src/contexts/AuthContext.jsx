@@ -46,7 +46,7 @@ export const AuthProvider = ({ children }) => {
 
   const login = async (email, password) => {
     try {
-      const result = await dispatch(loginUser({ email, password })).unwrap();
+      await dispatch(loginUser({ email, password })).unwrap();
       
       // Fetch full user profile to get extended fields
       const userProfile = await dispatch(getCurrentUser()).unwrap();
@@ -115,7 +115,7 @@ export const AuthProvider = ({ children }) => {
     try {
       await dispatch(logoutUser()).unwrap();
       return { success: true };
-    } catch (error) {
+    } catch {
       // Even if logout fails on server, clear local state
       return { success: true };
     }

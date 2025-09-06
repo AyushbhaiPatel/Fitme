@@ -22,7 +22,9 @@ const DailyRoutine = () => {
             addedTime: new Date(task.addedTime),
           }));
         }
-      } catch {}
+      } catch {
+        return [];
+      }
     }
     // If no valid tasks for today, start empty
     return [];

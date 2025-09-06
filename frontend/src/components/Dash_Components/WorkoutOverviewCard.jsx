@@ -1,11 +1,9 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowRight } from 'lucide-react';
-import Workouts from '../../pages/Workouts';
 
 const WorkoutOverviewCard = ({ totalWorkouts = 0, avgWorkout = 0, totalCaloriesBurned = 0 }) => {
   const navigate = useNavigate();
-  const currentDay = new Date().toLocaleDateString('en-US', { weekday: 'long' });
 
   const handleNavigate = () => {
     navigate('/dashboard/workouts');

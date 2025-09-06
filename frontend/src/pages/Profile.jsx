@@ -281,7 +281,7 @@ const Profile = () => {
           setFitnessStats(workoutRes.statistics);
           return;
         }
-      } catch (e) {
+      } catch {
         console.log('Workout stats not available, falling back to user stats');
       }
 
@@ -296,7 +296,7 @@ const Profile = () => {
           totalWorkoutTimeMinutes: 0,
           recentWorkouts: []
         });
-      } catch (e) {
+      } catch {
         setFitnessStats({
           totalWorkouts: 0,
           totalCaloriesBurned: 0,
@@ -421,7 +421,7 @@ const Profile = () => {
         if (!nextErrors[key]) nextErrors[key] = e.message;
       });
       setFieldErrors(nextErrors);
-    } catch (e) {
+    } catch {
       // Fallback to generic form error
       if (err?.message) setFormError(err.message);
     }
@@ -490,29 +490,6 @@ const Profile = () => {
     } finally {
       setImageUploading(false);
     }
-  };
-
-  // Mapping functions to convert display text to backend enums
-  const mapActivityLevelEnum = (text) => {
-    const mapping = {
-      'Sedentary': 'sedentary',
-      'Lightly Active': 'lightly-active',
-      'Moderately Active': 'moderately-active',
-      'Very Active': 'very-active',
-      'Extremely Active': 'extremely-active'
-    };
-    return mapping[text] || 'sedentary';
-  };
-
-  const mapGoalEnum = (text) => {
-    const mapping = {
-      'Lose Weight': 'weight-loss',
-      'Gain Weight': 'weight-gain',
-      'Build Muscle': 'muscle-gain',
-      'Improve Strength': 'strength',
-      'Stay Fit / Maintain': 'general-fitness'
-    };
-    return mapping[text] ? [mapping[text]] : [];
   };
 
   // === Helper functions to turn enum values back into readable labels ===

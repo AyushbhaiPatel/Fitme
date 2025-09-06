@@ -12,25 +12,15 @@ import {
   HelpCircle
 } from 'lucide-react';
 import { useToast } from '../hooks/useToast';
-import { authAPI, userAPI } from '../services/api';
+import { userAPI } from '../services/api';
 import DeleteAccountModal from '../components/DeleteAccountModal';
 import { useDispatch } from 'react-redux';
 import { logoutUser } from '../store/authSlice';
 
 const Settings = () => {
-  const [settings, setSettings] = useState({
-    twoFactorAuth: false,
-  });
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const { showToast } = useToast();
   const dispatch = useDispatch();
-
-  const handleSettingChange = (key, value) => {
-    setSettings(prev => ({
-      ...prev,
-      [key]: value
-    }));
-  };
 
   // Change Password functionality removed per request
 

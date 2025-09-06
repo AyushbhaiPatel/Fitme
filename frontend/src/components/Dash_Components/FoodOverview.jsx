@@ -28,7 +28,9 @@ const FoodOverview = () => {
       try {
         const restored = mealPlanPersistence.restorePlan();
         if (restored?.success && restored?.data) setPlan(restored.data);
-      } catch {}
+      } catch {
+        setPlan(null);
+      }
     };
     window.addEventListener('mealPlanUpdated', handler);
     return () => window.removeEventListener('mealPlanUpdated', handler);

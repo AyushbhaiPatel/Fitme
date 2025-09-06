@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { workoutAPI } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
@@ -698,8 +698,6 @@ const WorkoutCompletionModal = React.memo(({
   if (!showModal || !workoutSession) return null;
 
   const selectedDayData = workoutPlan?.days?.[selectedDay];
-  const durationMinutes = Math.round(totalWorkoutTime / (1000 * 60));
-  
   const completedCalories = Array.from(completedExercises).reduce((total, exerciseIndex) => {
     const exercise = selectedDayData?.exercises?.[exerciseIndex];
     return total + (exercise?.calories_burned || 0);
@@ -796,7 +794,6 @@ const WorkoutCompletionModal = React.memo(({
 
 const Workouts = () => {
   const [workoutPlan, setWorkoutPlan] = useState(null);
-  const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [selectedDay, setSelectedDay] = useState(0);
   const [showCustomWorkout, setShowCustomWorkout] = useState(false);
@@ -914,8 +911,8 @@ const Workouts = () => {
           setError(`✅ Workout plan "${planName.trim()}" saved locally!`);
           setTimeout(() => setError(null), 3000);
           return;
-        } catch (localError) {
-          console.error('Failed to save locally:', localError);
+        } catch (localSaveError) {
+          console.error('Failed to save locally:', localSaveError);
         }
       } else {
         errorMessage += 'Please try again.';
@@ -954,7 +951,7 @@ const Workouts = () => {
         } else {
           setError('Failed to fetch saved workout plans.');
         }
-      } catch (localError) {
+      } catch {
         setError('Failed to fetch saved workout plans.');
       }
     } finally {
@@ -1040,20 +1037,19 @@ const Workouts = () => {
       return;
     }
 
+    const exerciseData = validExercises.map(exercise => ({
+      name: exercise.name.trim(),
+      type: exercise.type || 'Custom',
+      sets: exercise.sets ? parseInt(exercise.sets) : undefined,
+      reps: exercise.reps ? parseInt(exercise.reps) : undefined,
+      duration: exercise.duration ? parseInt(exercise.duration) : undefined,
+      rest: exercise.rest ? parseInt(exercise.rest) : 60,
+      description: exercise.description || `Custom exercise: ${exercise.name}`
+    }));
+
     setSaveLoading(true);
     try {
       console.log('Attempting to create custom workout...');
-      
-      const exerciseData = validExercises.map(exercise => ({
-        name: exercise.name.trim(),
-        type: exercise.type || 'Custom',
-        sets: exercise.sets ? parseInt(exercise.sets) : undefined,
-        reps: exercise.reps ? parseInt(exercise.reps) : undefined,
-        duration: exercise.duration ? parseInt(exercise.duration) : undefined,
-        rest: exercise.rest ? parseInt(exercise.rest) : 60,
-        description: exercise.description || `Custom exercise: ${exercise.name}`
-      }));
-
       console.log('Processed exercise data:', exerciseData);
 
       const response = await workoutAPI.createCustomWorkout(
@@ -1238,14 +1234,16 @@ const Workouts = () => {
       // Refresh user profile to get updated workout history/stats
       try {
         await dispatch(getCurrentUser()).unwrap();
-      } catch (e) {
-        console.warn('Failed to refresh user after workout completion:', e);
+      } catch (refreshError) {
+        console.warn('Failed to refresh user after workout completion:', refreshError);
       }
 
       // Notify other pages (Progress) to refresh charts
       try {
         window.dispatchEvent(new Event('workoutStatsUpdated'));
-      } catch {}
+      } catch (refreshError) {
+        console.warn('Failed to dispatch workout stats refresh event:', refreshError);
+      }
 
       // Reset session
       setWorkoutSession(null);

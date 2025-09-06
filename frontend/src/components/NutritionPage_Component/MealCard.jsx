@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { FiBookmark, FiTrash2 } from 'react-icons/fi';
 
-const MealCard = ({ meal, mealType, onMealClick, onAddToRoutine, onDeleteMeal, showDeleteButton = false }) => {
+const MealCard = ({ meal, mealType, onMealClick, onAddToRoutine, onDeleteMeal }) => {
   const [isHovered, setIsHovered] = useState(false);
 
   const handleDeleteMeal = (e) => {

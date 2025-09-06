@@ -1,7 +1,7 @@
 import React from 'react';
 import { motion } from 'framer-motion';
 
-const PreferredWorkouts = ({ nextStep, prevStep, handleChange, values }) => {
+const PreferredWorkouts = ({ nextStep, prevStep, values }) => {
   const workoutTypes = [
     'Strength Training',
     'Cardio',
