@@ -3,46 +3,46 @@ version: '3.8'
 services:
   mongodb:
     image: mongo:latest
-    container_name: fitness_tracker_mongo
+    container_name: fitme_mongo
     ports:
       - "27017:27017"
     volumes:
       - mongodb_data:/data/db
     environment:
-      MONGO_INITDB_DATABASE: fitness_tracker
+      MONGO_INITDB_DATABASE: fitme
 
-  express_backend:
+  fitme-backend:
     build:
-      context: ./backend
+      context: ./fitme-backend
       dockerfile: Dockerfile
-    container_name: fitness_tracker_express
+    container_name: fitme_backend
     ports:
       - "5000:5000"
     depends_on:
       - mongodb
     environment:
       - NODE_ENV=development
-      - MONGODB_URI=mongodb://mongodb:27017/fitness_tracker
+      - MONGODB_URI=mongodb://mongodb:27017/fitme
       - GEMINI_API_KEY=${GEMINI_API_KEY}
       - JWT_SECRET=${JWT_SECRET}
-      - CLIENT_URL=http://localhost:3000
+      - CLIENT_URL=http://localhost:5173
     volumes:
-      - ./backend:/app
+      - ./fitme-backend:/app
       - /app/node_modules
 
-  frontend:
+  fitme-frontend:
     build:
-      context: ./frontend
+      context: ./fitme-frontend
       dockerfile: Dockerfile
-    container_name: fitness_tracker_frontend
+    container_name: fitme_frontend
     ports:
-      - "3000:3000"
+      - "5173:80"
     depends_on:
-      - express_backend
+      - fitme-backend
     environment:
       - VITE_API_URL=http://localhost:5000/api
     volumes:
-      - ./frontend:/app
+      - ./fitme-frontend:/app
       - /app/node_modules
 
 volumes:
