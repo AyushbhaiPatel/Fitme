@@ -12,12 +12,6 @@ export const authAPI = {
   getMe: () => axiosClient.get('/auth/me').then((r) => r.data),
   changePassword: (passwordData) => axiosClient.put('/auth/change-password', passwordData).then((r) => r.data),
   verifyToken: () => axiosClient.get('/auth/verify').then((r) => r.data),
-  sendOTP: (email) => axiosClient.post('/auth/send-otp', { email }).then((r) => r.data),
-  verifyOTP: (email, otp) => axiosClient.post('/auth/verify-otp', { email, otp }).then((r) => r.data),
-  resendOTP: (email) => axiosClient.post('/auth/resend-otp', { email }).then((r) => r.data),
-  requestPasswordReset: (email) => axiosClient.post('/auth/forgot-password/request', { email }).then((r) => r.data),
-  resetPasswordWithOTP: ({ email, otp, newPassword, confirmPassword }) =>
-    axiosClient.post('/auth/forgot-password/confirm', { email, otp, password: newPassword, confirmPassword }).then((r) => r.data),
 };
 
 // User API

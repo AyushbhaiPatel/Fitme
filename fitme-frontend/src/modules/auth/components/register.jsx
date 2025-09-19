@@ -47,9 +47,7 @@ const Register = () => {
     try {
       const result = await register(formData.email, formData.password, formData.confirmPassword, formData.firstName, formData.lastName);
       if (result.success) {
-        if (result.requiresEmailVerification) {
-          navigate('/otp-verification', { state: { email: formData.email, message: 'Please check your email for the verification code' } });
-        } else if (result.onboarding) {
+        if (result.onboarding) {
           navigate('/onboarding');
         } else {
           setErrors({ submit: 'Registration completed but something went wrong' });

@@ -1,29 +1,22 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../../context/auth-context';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Eye, EyeOff, Mail, Lock, ArrowLeft, AlertCircle, CheckCircle, Info, Clock, Shield, RefreshCw, HelpCircle } from 'lucide-react';
-import OtpVerification from './email-verification-inline';
+import { Eye, EyeOff, Mail, Lock, ArrowLeft, AlertCircle, CheckCircle, Clock, Shield, RefreshCw, HelpCircle } from 'lucide-react';
 
 const Login = () => {
   const { login } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
 
-  const [formData, setFormData] = useState({ email: location.state?.email || '', password: '' });
+  const [formData, setFormData] = useState({ email: '', password: '' });
   const [errors, setErrors] = useState({});
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [, setLastError] = useState(null);
   const [, setRetryCount] = useState(0);
-  const [showOTPVerification, setShowOTPVerification] = useState(false);
-  const [unverifiedEmail, setUnverifiedEmail] = useState('');
 
   const from = location.state?.from?.pathname || '/dashboard';
-
-  useEffect(() => {
-    if (location.state?.clearErrors) { setErrors({}); setLastError(null); }
-  }, [location.state]);
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -46,7 +39,6 @@ const Login = () => {
       case 'EMAIL_NOT_FOUND': return <HelpCircle className="w-5 h-5 text-blue-500" />;
       case 'INVALID_PASSWORD': return <Shield className="w-5 h-5 text-orange-500" />;
       case 'ACCOUNT_LOCKED': return <Clock className="w-5 h-5 text-red-500" />;
-      case 'EMAIL_NOT_VERIFIED': return <Info className="w-5 h-5 text-yellow-500" />;
       case 'SERVER_ERROR': return <RefreshCw className="w-5 h-5 text-gray-500" />;
       default: return <AlertCircle className="w-5 h-5 text-red-500" />;
     }
@@ -57,7 +49,6 @@ const Login = () => {
       case 'EMAIL_NOT_FOUND': return 'blue';
       case 'INVALID_PASSWORD': return 'orange';
       case 'ACCOUNT_LOCKED': return 'red';
-      case 'EMAIL_NOT_VERIFIED': return 'yellow';
       case 'SERVER_ERROR': return 'gray';
       default: return 'red';
     }
@@ -84,18 +75,9 @@ const Login = () => {
 
   const handleLoginError = (errorResult) => {
     const errorInfo = typeof errorResult === 'string' ? { message: errorResult, errorCode: 'GENERIC_ERROR' } : errorResult;
-    if (errorInfo.errorCode === 'EMAIL_NOT_VERIFIED') {
-      setUnverifiedEmail(errorInfo.data?.email || formData.email);
-      setShowOTPVerification(true);
-      return;
-    }
     setLastError(errorInfo);
     setRetryCount((prev) => prev + 1);
     setErrors({ submit: { message: errorInfo.message, errorCode: errorInfo.errorCode, suggestions: errorInfo.suggestions || [], attemptsRemaining: errorInfo.attemptsRemaining, timeRemaining: errorInfo.timeRemaining } });
-  };
-
-  const handleOTPSuccess = (data) => {
-    navigate(data.user?.profileCompleted ? '/dashboard' : '/onboarding', { replace: true });
   };
 
   const renderErrorMessage = (error) => {
@@ -119,9 +101,6 @@ const Login = () => {
             {error.errorCode === 'EMAIL_NOT_FOUND' && (
               <Link to="/register" className="mt-3 inline-flex items-center px-3 py-1 text-xs font-medium text-blue-700 bg-blue-100 rounded-full hover:bg-blue-200">Create Account</Link>
             )}
-            {(error.errorCode === 'INVALID_PASSWORD' || error.errorCode === 'ACCOUNT_LOCKED') && (
-              <Link to="/forgot-password" className="mt-3 inline-flex items-center px-3 py-1 text-xs font-medium text-orange-700 bg-orange-100 rounded-full hover:bg-orange-200">Reset Password</Link>
-            )}
           </div>
         </div>
       </motion.div>
@@ -136,10 +115,6 @@ const Login = () => {
       </motion.div>
     );
   };
-
-  if (showOTPVerification) {
-    return <OtpVerification email={unverifiedEmail} onSuccess={handleOTPSuccess} onBack={() => { setShowOTPVerification(false); setUnverifiedEmail(''); }} />;
-  }
 
   return (
     <div className="min-h-screen flex items-center justify-center p-4" style={{ backgroundColor: '#FAF7F2' }}>
@@ -210,12 +185,6 @@ const Login = () => {
               ) : 'Sign In'}
             </motion.button>
           </form>
-
-          <div className="text-center mt-6">
-            <Link to="/forgot-password" className="text-sm text-gray-900 hover:opacity-80 inline-flex items-center">
-              <HelpCircle className="w-4 h-4 mr-1" />Forgot your password?
-            </Link>
-          </div>
 
           <div className="text-center mt-6 pt-6 border-t border-gray-200">
             <p className="text-gray-600 text-sm">

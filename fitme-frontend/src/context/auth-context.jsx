@@ -42,10 +42,7 @@ export const AuthProvider = ({ children }) => {
 
     const result = await store.register({ email, password, firstName, lastName });
     if (!result.success) return result;
-    if (result.tokens?.accessToken) {
-      await store.getCurrentUser().catch(() => {});
-    }
-    if (result.requiresEmailVerification) return { success: true, requiresEmailVerification: true };
+    await store.getCurrentUser().catch(() => {});
     return { success: true, onboarding: true };
   };
 
@@ -59,7 +56,6 @@ export const AuthProvider = ({ children }) => {
     login,
     register,
     logout: store.logout,
-    manualLogin: store.manualLogin,
     clearError: store.clearError,
     clearSuccessMessage: store.clearSuccessMessage,
   };

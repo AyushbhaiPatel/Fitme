@@ -1,6 +1,17 @@
 const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 
+const LEGACY_AUTH_FIELDS = [
+  'isEmailVerified',
+  'emailOTP',
+  'otpExpiresAt',
+  'otpAttempts',
+  'passwordResetOTP',
+  'passwordResetExpiresAt',
+  'passwordResetAttempts',
+  'passwordResetLastSentAt',
+];
+
 const userSchema = new mongoose.Schema(
   {
     email: {
@@ -51,14 +62,6 @@ const userSchema = new mongoose.Schema(
     },
     targetMuscleGain: { type: Number, min: 0, max: 50 },
     currentStrengthLevel: { type: String, enum: ['Beginner', 'Intermediate', 'Advanced'], default: 'Beginner' },
-    isEmailVerified: { type: Boolean, default: false },
-    emailOTP: { type: String, select: false },
-    otpExpiresAt: { type: Date, select: false },
-    otpAttempts: { type: Number, default: 0, select: false },
-    passwordResetOTP: { type: String, select: false },
-    passwordResetExpiresAt: { type: Date, select: false },
-    passwordResetAttempts: { type: Number, default: 0, select: false },
-    passwordResetLastSentAt: { type: Date, select: false },
     profileCompleted: { type: Boolean, default: false },
     lastLoginAt: { type: Date },
     totalWorkouts: { type: Number, default: 0 },
@@ -85,6 +88,8 @@ const userSchema = new mongoose.Schema(
       transform(doc, ret) {
         delete ret.password;
         delete ret.__v;
+        // Fields from the removed OTP / password-reset flows may still exist on older documents
+        LEGACY_AUTH_FIELDS.forEach((field) => delete ret[field]);
         return ret;
       },
     },

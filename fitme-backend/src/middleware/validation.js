@@ -32,27 +32,6 @@ const validateLogin = [
   handleValidationErrors,
 ];
 
-const validatePasswordResetRequest = [
-  body('email').isEmail().normalizeEmail().withMessage('Please provide a valid email address'),
-  handleValidationErrors,
-];
-
-const validatePasswordReset = [
-  body('email').isEmail().normalizeEmail().withMessage('Please provide a valid email address'),
-  body('otp').notEmpty().withMessage('OTP is required').isLength({ min: 6, max: 6 }).withMessage('OTP must be exactly 6 digits').matches(/^[0-9]{6}$/).withMessage('OTP must contain only numbers'),
-  body('password')
-    .isLength({ min: 8 }).withMessage('Password must be at least 8 characters long')
-    .matches(/[a-z]/).withMessage('Password must include at least one lowercase letter')
-    .matches(/[A-Z]/).withMessage('Password must include at least one uppercase letter')
-    .matches(/[0-9]/).withMessage('Password must include at least one number')
-    .matches(/[^A-Za-z0-9]/).withMessage('Password must include at least one special character'),
-  body('confirmPassword').custom((value, { req }) => {
-    if (value !== req.body.password) throw new Error('Passwords do not match');
-    return true;
-  }),
-  handleValidationErrors,
-];
-
 const validateProfileUpdate = [
   body('firstName').optional().trim().isLength({ min: 2, max: 50 }).withMessage('First name must be between 2 and 50 characters').matches(/^[a-zA-Z\s]+$/).withMessage('First name can only contain letters and spaces'),
   body('lastName').optional().trim().isLength({ min: 2, max: 50 }).withMessage('Last name must be between 2 and 50 characters').matches(/^[a-zA-Z\s]+$/).withMessage('Last name can only contain letters and spaces'),
@@ -117,31 +96,23 @@ const validatePasswordChange = [
   handleValidationErrors,
 ];
 
+const validateEmailUpdate = [
+  body('newEmail').isEmail().normalizeEmail().withMessage('Please provide a valid email address'),
+  body('password').notEmpty().withMessage('Password is required'),
+  handleValidationErrors,
+];
+
 const validateRefreshToken = [
   body('refreshToken').notEmpty().withMessage('Refresh token is required'),
-  handleValidationErrors,
-];
-
-const validateEmailOTP = [
-  body('email').isEmail().normalizeEmail().withMessage('Please provide a valid email address'),
-  handleValidationErrors,
-];
-
-const validateOTP = [
-  body('email').isEmail().normalizeEmail().withMessage('Please provide a valid email address'),
-  body('otp').notEmpty().withMessage('OTP is required').isLength({ min: 6, max: 6 }).withMessage('OTP must be exactly 6 digits').matches(/^[0-9]{6}$/).withMessage('OTP must contain only numbers'),
   handleValidationErrors,
 ];
 
 module.exports = {
   validateRegistration,
   validateLogin,
-  validatePasswordResetRequest,
-  validatePasswordReset,
   validateProfileUpdate,
   validatePasswordChange,
+  validateEmailUpdate,
   validateRefreshToken,
-  validateEmailOTP,
-  validateOTP,
   handleValidationErrors,
 };

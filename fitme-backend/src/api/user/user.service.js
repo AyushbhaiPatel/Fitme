@@ -75,10 +75,9 @@ module.exports.updateEmail = async (userId, { newEmail, password }) => {
   if (taken) return Format.conflict('Email is already taken');
 
   user.email = newEmail;
-  user.isEmailVerified = false;
   await userDao.saveUser(user);
 
-  return Format.success({ email: user.email, isEmailVerified: false }, 'Email updated successfully');
+  return Format.success({ email: user.email }, 'Email updated successfully');
 };
 
 module.exports.getPreferences = async (user) => {

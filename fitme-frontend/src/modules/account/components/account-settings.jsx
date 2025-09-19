@@ -8,8 +8,7 @@ import {
   Shield,
   FileDown,
   AlertTriangle,
-  Settings as SettingsIcon,
-  HelpCircle
+  Settings as SettingsIcon
 } from 'lucide-react';
 import { useToast } from '../../../hooks/use-toast';
 import DeleteAccountModal from '../../../components/delete-account-modal';
@@ -116,31 +115,6 @@ const Settings = () => {
 
         {/* Settings Grid */}
         <div className="space-y-6">
-
-          {/* Password Recovery */}
-          <SettingCard
-            icon={HelpCircle}
-            title="Password Recovery"
-            description="Reset your password if you've forgotten it or need assistance"
-          >
-            <div className="space-y-6">
-              {/* Forgot Password */}
-              <div className="flex items-center justify-between">
-                <div className="flex-1">
-                  <h4 className="text-base font-semibold text-gray-900">Forgot Password</h4>
-                  <p className="text-sm text-gray-500 mt-1">Reset your password via email if you can't remember it</p>
-                </div>
-                <ActionButton 
-                  variant="secondary" 
-                  icon={HelpCircle}
-                  onClick={() => window.location.href = '/forgot-password?from=settings'}
-                >
-                  Reset Password
-                </ActionButton>
-              </div>
-            </div>
-          </SettingCard>
-
           {/* Danger Zone */}
           <SettingCard
             icon={AlertTriangle}

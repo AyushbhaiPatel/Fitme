@@ -68,16 +68,13 @@ export const useAuthStore = create((set, get) => ({
     set({ loading: true, error: null });
     try {
       const res = await axiosClient.post('/auth/register', userData);
-      const { user, tokens, requiresEmailVerification } = res.data.data;
+      const { user, tokens } = res.data.data;
+      if (!tokens?.accessToken) throw new Error('Registration succeeded but no access token was received. Please sign in.');
+      setToken(tokens.accessToken);
+      if (tokens.refreshToken) localStorage.setItem('fitme_refresh_token', tokens.refreshToken);
       persistUser(user);
-      if (tokens?.accessToken) {
-        setToken(tokens.accessToken);
-        if (tokens.refreshToken) localStorage.setItem('fitme_refresh_token', tokens.refreshToken);
-        set({ user, isAuthenticated: true, loading: false, error: null, successMessage: 'Registration successful!' });
-        return { success: true, user, tokens, requiresEmailVerification: false };
-      }
-      set({ user, isAuthenticated: false, loading: false, error: null, successMessage: 'Registration successful! Please verify your email.' });
-      return { success: true, user, requiresEmailVerification: !!requiresEmailVerification };
+      set({ user, isAuthenticated: true, loading: false, error: null, successMessage: 'Registration successful!' });
+      return { success: true, user, tokens };
     } catch (err) {
       const error = handleApiError(err);
       set({ loading: false, error: error.message, isAuthenticated: false, user: null });
@@ -185,16 +182,6 @@ export const useAuthStore = create((set, get) => ({
       set({ loading: false, error: error.message });
       throw error.message;
     }
-  },
-
-  manualLogin: (userData, tokens) => {
-    if (tokens) {
-      setToken(tokens.accessToken);
-      localStorage.setItem('fitme_refresh_token', tokens.refreshToken);
-    }
-    if (userData) persistUser(userData);
-    get().initializeAuth();
-    if (tokens) get().getCurrentUser();
   },
 
   updateUser: (partial) => {

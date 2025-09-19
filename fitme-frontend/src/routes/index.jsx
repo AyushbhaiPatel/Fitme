@@ -8,8 +8,6 @@ import { ROUTES } from './local-routes';
 import HomePage from '../modules/home/components/home-page';
 import Login from '../modules/auth/components/login';
 import Register from '../modules/auth/components/register';
-import EmailVerificationPage from '../modules/auth/components/email-verification-page';
-import ForgotPassword from '../modules/auth/components/forgot-password';
 import Onboarding from '../modules/onboarding/components/onboarding';
 
 // Dashboard pages
@@ -59,8 +57,6 @@ const AppRoutes = () => {
         <Route path={ROUTES.HOME} element={<HomePage />} />
         <Route path={ROUTES.LOGIN} element={<Login />} />
         <Route path={ROUTES.REGISTER} element={<Register />} />
-        <Route path={ROUTES.OTP_VERIFICATION} element={<EmailVerificationPage />} />
-        <Route path={ROUTES.FORGOT_PASSWORD} element={<ForgotPassword />} />
 
         {/* Onboarding (protected, no profile required) */}
         <Route
