@@ -1,33 +1,19 @@
 import React, { useMemo } from 'react';
 import userStorage from '../../utils/user-scoped-storage';
+import { NUTRITION_LOG_KEY, parseNutritionLog, dayTotals } from '../../modules/nutrition/utils/nutrition-log';
+import { toLocalDateKey } from '../../utils/local-date';
+import { buildPeriodBuckets } from '../../modules/analytics/utils/period-buckets';
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts';
 
 const EatenCaloriesChart = () => {
   // Build chart data
   const data = useMemo(() => {
-    let nutrition = {};
-    try {
-      nutrition = JSON.parse(userStorage.getItem('cumulativeNutrition') || '{}');
-    } catch {
-      nutrition = {};
-    }
-
-    // Get Monday of current week
-    const today = new Date();
-    const dayOfWeek = today.getDay(); // 0 = Sunday, 1 = Monday, etc.
-    const mondayOffset = dayOfWeek === 0 ? 6 : dayOfWeek - 1; // Days since Monday
-    
-    const days = Array.from({ length: 7 }, (_, i) => {
-      const d = new Date(today);
-      d.setDate(today.getDate() - mondayOffset + i); // Start from Monday
-      d.setHours(0, 0, 0, 0);
-      const key = d.toISOString().slice(0, 10);
-      const label = d.toLocaleDateString(undefined, { weekday: 'short' });
-      const eaten = nutrition[key]?.calories || 0;
-      return { day: label, value: eaten };
-    });
-
-    return days;
+    const nutrition = parseNutritionLog(userStorage.getItem(NUTRITION_LOG_KEY));
+    // Monday-Sunday of the current local week, the same days as the analytics charts
+    return buildPeriodBuckets('week').map((b) => ({
+      day: b.label,
+      value: dayTotals(nutrition, toLocalDateKey(b.start)).calories,
+    }));
   }, []);
 
   return (

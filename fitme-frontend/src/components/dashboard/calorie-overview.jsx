@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import userStorage from '../../utils/user-scoped-storage';
 import { Flame } from 'lucide-react';
+import { NUTRITION_LOG_KEY, parseNutritionLog, todayTotals } from '../../modules/nutrition/utils/nutrition-log';
 
 const ProgressBar = ({ label, value, max, suffix }) => {
   const percentage = Math.min((value / max) * 100, 100);
@@ -23,19 +24,7 @@ const CalorieOverview = ({ caloriesBurned = 0 }) => {
   // Get today's nutrition progress
   const getTodaysNutrition = () => {
     try {
-      const nutritionData = JSON.parse(userStorage.getItem('cumulativeNutrition') || '{}');
-      const today = new Date().toISOString().slice(0, 10);
-      
-      if (nutritionData[today]) {
-        return {
-          calories: nutritionData[today].calories || 0,
-          protein: nutritionData[today].protein || 0,
-          carbs: nutritionData[today].carbs || 0,
-          fat: nutritionData[today].fat || 0
-        };
-      }
-      
-      return { calories: 0, protein: 0, carbs: 0, fat: 0 };
+      return todayTotals(parseNutritionLog(userStorage.getItem(NUTRITION_LOG_KEY)));
     } catch (error) {
       console.error('Error getting today\'s nutrition:', error);
       return { calories: 0, protein: 0, carbs: 0, fat: 0 };

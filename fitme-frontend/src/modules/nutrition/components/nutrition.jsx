@@ -7,6 +7,7 @@ import DailyMealPlanGenerator from './daily-meal-plan-generator';
 import { useToast } from '../../../hooks/use-toast';
 import userStorage from '../../../utils/user-scoped-storage';
 import mealPlanPersistence from '../services/meal-plan-persistence';
+import { DAILY_TASKS_KEY, restoreDailyTasks, serializeDailyTasks } from '../utils/nutrition-log';
 
 const Nutrition = () => {
     const [selectedRecipe, setSelectedRecipe] = useState(null);
@@ -121,25 +122,17 @@ const Nutrition = () => {
         color: "bg-gray-100",
         addedTime: new Date(),
       };
-      // Get today's date and tasks
-      const today = new Date().toISOString().slice(0, 10);
-      let parsed = { date: today, tasks: [] };
+      // Today's (local calendar day) tasks
+      let saved = {};
       try {
-        const saved = userStorage.getItem("dailyTasks");
-        if (saved) {
-          parsed = JSON.parse(saved);
-          if (parsed.date !== today) {
-            parsed = { date: today, tasks: [] };
-          }
-        }
+        saved = JSON.parse(userStorage.getItem(DAILY_TASKS_KEY) || '{}');
       } catch {
-        parsed = { date: today, tasks: [] };
+        saved = {};
       }
-      // Remove existing task at same time
-      parsed.tasks = parsed.tasks.filter(t => t.time !== task.time);
-      // Add new task
-      parsed.tasks.push(task);
-      userStorage.setItem("dailyTasks", JSON.stringify(parsed));
+      // Replace any existing task at the same time
+      const tasks = restoreDailyTasks(saved).filter(t => t.time !== task.time);
+      tasks.push(task);
+      userStorage.setItem(DAILY_TASKS_KEY, JSON.stringify(serializeDailyTasks(tasks)));
       setShowRoutineModal(false);
       setRoutineModalMeal(null);
       setRoutineModalMealType(null);

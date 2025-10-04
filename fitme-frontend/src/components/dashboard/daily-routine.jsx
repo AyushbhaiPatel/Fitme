@@ -2,33 +2,32 @@ import React, { useState, useEffect } from "react";
 import { createPortal } from 'react-dom';
 import { Trash2 } from 'lucide-react';
 import userStorage from "../../utils/user-scoped-storage";
+import {
+  DAILY_TASKS_KEY,
+  NUTRITION_LOG_KEY,
+  parseNutritionLog,
+  recordCompletedMeal,
+  restoreDailyTasks,
+  serializeDailyTasks,
+  isCurrentDailyTasks,
+} from "../../modules/nutrition/utils/nutrition-log";
 
-// Get today's date
-const getTodayDate = () => {
-  const today = new Date();
-  return today.toISOString().slice(0, 10);
+const readSavedTasks = () => {
+  try {
+    return JSON.parse(userStorage.getItem(DAILY_TASKS_KEY) || "{}");
+  } catch {
+    return {};
+  }
 };
 
 const DailyRoutine = () => {
-  // Load today's tasks from storage
-  const [tasks, setTasks] = useState(() => {
-    const saved = userStorage.getItem("dailyTasks");
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        if (parsed && parsed.date === getTodayDate() && Array.isArray(parsed.tasks)) {
-          return parsed.tasks.map((task) => ({
-            ...task,
-            addedTime: new Date(task.addedTime),
-          }));
-        }
-      } catch {
-        return [];
-      }
-    }
-    // Start empty if no valid tasks
-    return [];
-  });
+  // Load today's tasks (local calendar day) from storage
+  const [tasks, setTasks] = useState(() =>
+    restoreDailyTasks(readSavedTasks()).map((task) => ({
+      ...task,
+      addedTime: new Date(task.addedTime),
+    }))
+  );
 
   const [showModal, setShowModal] = useState(false);
   const [selectedTime, setSelectedTime] = useState("");
@@ -77,10 +76,7 @@ const DailyRoutine = () => {
 
   // When tasks change, save with today's date
   useEffect(() => {
-    userStorage.setItem(
-      "dailyTasks",
-      JSON.stringify({ date: getTodayDate(), tasks })
-    );
+    userStorage.setItem(DAILY_TASKS_KEY, JSON.stringify(serializeDailyTasks(tasks)));
     // Dispatch custom event to notify other components (like Profile stats)
     window.dispatchEvent(new Event('dailyTasksUpdated'));
   }, [tasks]);
@@ -89,25 +85,18 @@ const DailyRoutine = () => {
   useEffect(() => {
     const checkTemporaryTasks = () => {
       const now = new Date();
-      // If date changed, clear tasks
-      try {
-        const savedTasks = JSON.parse(userStorage.getItem("dailyTasks") || '{}');
-        if (getTodayDate() !== savedTasks.date) {
-          setTasks([]);
-          userStorage.setItem(
-            "dailyTasks",
-            JSON.stringify({ date: getTodayDate(), tasks: [] })
-          );
-          return;
-        }
-      } catch {
-        // If parse fails, reset to empty
-        setTasks([]);
+      // If the local date changed (app left open overnight) or the record is in the old
+      // UTC-day format, keep only what belongs to today.
+      const saved = readSavedTasks();
+      if (!isCurrentDailyTasks(saved, now)) {
+        const restored = restoreDailyTasks(saved, now);
+        setTasks(restored);
+        userStorage.setItem(DAILY_TASKS_KEY, JSON.stringify(serializeDailyTasks(restored, now)));
         return;
       }
       // Read current tasks from storage to avoid stale closure
       try {
-        const currentTasks = JSON.parse(userStorage.getItem("dailyTasks") || '{}');
+        const currentTasks = readSavedTasks();
         const taskList = currentTasks.tasks || [];
         const updatedTasks = taskList.filter((task) => {
           const timeDiff = (now - new Date(task.addedTime)) / (1000 * 60 * 60);
@@ -115,10 +104,7 @@ const DailyRoutine = () => {
         });
         // Only update if tasks actually changed
         if (updatedTasks.length !== taskList.length) {
-          userStorage.setItem(
-            "dailyTasks",
-            JSON.stringify({ date: getTodayDate(), tasks: updatedTasks })
-          );
+          userStorage.setItem(DAILY_TASKS_KEY, JSON.stringify(serializeDailyTasks(updatedTasks, now)));
           setTasks(updatedTasks);
         }
       } catch {
@@ -130,54 +116,15 @@ const DailyRoutine = () => {
     return () => clearInterval(interval);
   }, []);
 
-  // Function to track cumulative nutrition when tasks are completed
+  // Add a completed meal to today's (local calendar day) nutrition log
   const trackCumulativeNutrition = (task, isCompleting) => {
     if (!isCompleting) return; // Only track when completing, not uncompleting
-    
-    console.log('Tracking nutrition for task:', task); // Debug log
-    
-    const today = getTodayDate();
-    const nutritionKey = 'cumulativeNutrition';
-    
     try {
-      let nutritionData = JSON.parse(userStorage.getItem(nutritionKey) || '{}');
-      
-      // Initialize today's data if it doesn't exist
-      if (!nutritionData[today]) {
-        nutritionData[today] = {
-          calories: 0,
-          protein: 0,
-          carbs: 0,
-          fat: 0,
-          completedMeals: []
-        };
-      }
-      
-      // Check if this specific task was already counted to avoid duplicates
-      const taskId = `${task.time}-${task.name}`;
-      if (nutritionData[today].completedMeals.includes(taskId)) {
-        console.log('Task already counted, skipping:', taskId);
-        return; // Already counted
-      }
-      
-      // Add nutrition values
-      const caloriesAdded = Number(task.calories) || 0;
-      const proteinAdded = Number(task.protein) || 0;
-      const carbsAdded = Number(task.carbs) || 0;
-      const fatAdded = Number(task.fat) || 0;
-      
-      nutritionData[today].calories += caloriesAdded;
-      nutritionData[today].protein += proteinAdded;
-      nutritionData[today].carbs += carbsAdded;
-      nutritionData[today].fat += fatAdded;
-      nutritionData[today].completedMeals.push(taskId);
-      
-      console.log('Added nutrition:', { caloriesAdded, proteinAdded, carbsAdded, fatAdded });
-      console.log('Total nutrition now:', nutritionData[today]);
-      
-      // Save back to localStorage
-      userStorage.setItem(nutritionKey, JSON.stringify(nutritionData));
-      
+      const log = parseNutritionLog(userStorage.getItem(NUTRITION_LOG_KEY));
+      const result = recordCompletedMeal(log, task);
+      if (!result.added) return; // Already counted
+      task.countedOn = result.dayKey;
+      userStorage.setItem(NUTRITION_LOG_KEY, JSON.stringify(result.log));
       // Dispatch event to notify Profile component
       window.dispatchEvent(new Event('nutritionDataUpdated'));
     } catch (error) {
