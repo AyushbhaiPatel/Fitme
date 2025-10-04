@@ -4,7 +4,7 @@
   "description": "Backend for Fitness Tracker Application",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "node --test",
     "start": "node index.js",
     "dev": "nodemon index.js",
     "test:profile-photo": "node test-profile-photo.js",
