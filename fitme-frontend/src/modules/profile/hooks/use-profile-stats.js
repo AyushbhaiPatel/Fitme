@@ -7,6 +7,8 @@ const defaultStats = {
   totalCaloriesBurned: 0,
   averageWorkoutTimeMinutes: 0,
   totalWorkoutTimeMinutes: 0,
+  averageWorkoutTimeSeconds: 0,
+  totalWorkoutTimeSeconds: 0,
   recentWorkouts: [],
 };
 
@@ -33,6 +35,8 @@ const useProfileStats = () => {
           totalCaloriesBurned: stats.caloriesBurned ?? 0,
           averageWorkoutTimeMinutes: stats.avgWorkout ?? 0,
           totalWorkoutTimeMinutes: 0,
+          averageWorkoutTimeSeconds: stats.avgWorkoutSeconds ?? 0,
+          totalWorkoutTimeSeconds: stats.totalWorkoutTimeSeconds ?? 0,
           recentWorkouts: [],
         });
       } catch {

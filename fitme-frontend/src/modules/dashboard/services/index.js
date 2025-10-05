@@ -1,6 +1,16 @@
 import axiosClient from '../../../services/api-service/axios-client';
 import { dashboardApiRoutes } from './api-routes';
+import { unwrapEnvelope } from '../../../utils/api-envelope';
 
-export const getUserStats = () => axiosClient.get(dashboardApiRoutes.userStats).then((r) => r.data);
-export const getWorkoutStatistics = () => axiosClient.get(dashboardApiRoutes.workoutStatistics).then((r) => r.data);
-export const getWeeklySummary = () => axiosClient.get(dashboardApiRoutes.weeklySummary).then((r) => r.data);
+const browserTimeZone = () => {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || undefined;
+  } catch {
+    return undefined;
+  }
+};
+
+export const getWorkoutStatistics = () => axiosClient.get(dashboardApiRoutes.workoutStatistics).then(unwrapEnvelope);
+// The server buckets days/weeks in this time zone so "today" and "this week" match the user's calendar.
+export const getWeeklySummary = () =>
+  axiosClient.get(dashboardApiRoutes.weeklySummary, { params: { tz: browserTimeZone() } }).then(unwrapEnvelope);

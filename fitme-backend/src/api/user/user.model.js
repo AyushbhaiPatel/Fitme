@@ -20,7 +20,10 @@ const userSchema = new mongoose.Schema(
       unique: true,
       lowercase: true,
       trim: true,
-      match: [/^\w+([.-]?\w+)*@\w+([.-]?\w+)*(\.\w{2,3})+$/, 'Please enter a valid email'],
+      maxlength: [254, 'Email must be at most 254 characters'],
+      // Loose shape check only; strict validation happens in the request validator.
+      // The old pattern capped TLDs at 3 chars and rejected valid addresses (e.g. ".test", "+tag").
+      match: [/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/, 'Please enter a valid email'],
     },
     password: { type: String, required: [true, 'Password is required'], minlength: 6, select: false },
     firstName: { type: String, required: [true, 'First name is required'], trim: true, maxlength: 50 },
@@ -66,6 +69,8 @@ const userSchema = new mongoose.Schema(
     lastLoginAt: { type: Date },
     totalWorkouts: { type: Number, default: 0 },
     totalCaloriesBurned: { type: Number, default: 0 },
+    // Canonical total in seconds. No default: absent means a legacy record that only has minutes.
+    totalWorkoutTimeSeconds: { type: Number, min: 0 },
     totalWorkoutTimeMinutes: { type: Number, default: 0 },
     averageWorkoutTimeMinutes: { type: Number, default: 0 },
     workoutHistory: [
@@ -73,11 +78,15 @@ const userSchema = new mongoose.Schema(
         workoutId: { type: mongoose.Schema.Types.ObjectId, ref: 'WorkoutPlan' },
         completedAt: { type: Date, default: Date.now },
         caloriesBurned: { type: Number, default: 0 },
+        durationSeconds: { type: Number, min: 0 },
         durationMinutes: { type: Number, default: 0 },
         workoutName: String,
-        exercises: [{ name: String, completed: Boolean, caloriesBurned: Number }],
+        exercises: [{ name: String, completed: Boolean, caloriesBurned: Number, completedSets: Number, totalSets: Number }],
       },
     ],
+    // Incremented by every trim of workoutHistory; fences the atomic counter update (workout.recorder.js).
+    // No default: absent reads as 0. Written only by the workout completion flow.
+    workoutCacheTrimEpoch: { type: Number, min: 0 },
     longestStreak: { type: Number, default: 0 },
     currentStreak: { type: Number, default: 0 },
     achievements: { type: Number, default: 0 },

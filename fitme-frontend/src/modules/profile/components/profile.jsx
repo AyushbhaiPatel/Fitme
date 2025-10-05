@@ -38,6 +38,7 @@ import {
   FITNESS_EXPERIENCE_OPTIONS
 } from '../../../constants/preferences';
 import useProfileStats from '../hooks/use-profile-stats';
+import { formatDuration as formatWorkoutDuration, secondsFrom } from '../../../utils/duration-utils';
 
 const WORKOUT_TYPE_OPTIONS = CANONICAL_WORKOUT_TYPES;
 
@@ -1216,13 +1217,17 @@ const Profile = () => {
           </div>
           <div className="text-center p-4 bg-blue-50 rounded-lg">
             <Clock className="w-8 h-8 text-blue-600 mx-auto mb-2" />
-            <div className="text-2xl font-bold text-blue-600">{fitnessStats.averageWorkoutTimeMinutes}</div>
-            <div className="text-sm text-gray-600">Avg Workout (min)</div>
+            <div className="text-2xl font-bold text-blue-600">
+              {formatWorkoutDuration(secondsFrom(fitnessStats.averageWorkoutTimeSeconds, fitnessStats.averageWorkoutTimeMinutes))}
+            </div>
+            <div className="text-sm text-gray-600">Avg Workout</div>
           </div>
           <div className="text-center p-4 bg-green-50 rounded-lg">
             <Activity className="w-8 h-8 text-green-600 mx-auto mb-2" />
-            <div className="text-2xl font-bold text-green-600">{Math.round((fitnessStats.totalWorkoutTimeMinutes || 0) / 60)}</div>
-            <div className="text-sm text-gray-600">Total Hours</div>
+            <div className="text-2xl font-bold text-green-600">
+              {formatWorkoutDuration(secondsFrom(fitnessStats.totalWorkoutTimeSeconds, fitnessStats.totalWorkoutTimeMinutes))}
+            </div>
+            <div className="text-sm text-gray-600">Total Workout Time</div>
           </div>
         </div>
         
@@ -1280,7 +1285,7 @@ const Profile = () => {
                 </div>
                 <div className="text-right">
                   <p className="font-semibold text-orange-600">{workout.caloriesBurned} cal</p>
-                  <p className="text-sm text-gray-500">{workout.durationMinutes} min</p>
+                  <p className="text-sm text-gray-500">{formatWorkoutDuration(secondsFrom(workout.durationSeconds, workout.durationMinutes))}</p>
                 </div>
               </div>
             ))}

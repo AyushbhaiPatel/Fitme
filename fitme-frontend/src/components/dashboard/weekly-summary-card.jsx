@@ -1,7 +1,8 @@
 import React from 'react';
 import { Dumbbell, Clock, Flame } from 'lucide-react';
+import { formatDuration, secondsFrom } from '../../utils/duration-utils';
 
-const Stat = ({ label, value, delta, variant = 'workouts' }) => {
+const Stat = ({ label, value, delta, formatDelta = String, variant = 'workouts' }) => {
   const isPositive = delta > 0;
   const isZero = delta === 0;
 
@@ -33,7 +34,7 @@ const Stat = ({ label, value, delta, variant = 'workouts' }) => {
         <div className="flex items-baseline gap-2 mt-0.5">
           <span className="text-xl font-bold text-gray-900">{value}</span>
           <span className={`text-xs font-semibold ${isZero ? 'text-gray-400' : isPositive ? 'text-emerald-600' : 'text-rose-600'}`}>
-            {isZero ? '—' : isPositive ? `+${delta}` : `${delta}`}
+            {isZero ? '—' : isPositive ? `+${formatDelta(delta)}` : `-${formatDelta(Math.abs(delta))}`}
           </span>
         </div>
       </div>
@@ -63,7 +64,13 @@ export default function WeeklySummaryCard({ summary }) {
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <Stat label="Workouts Completed" value={thisWeek.workouts} delta={delta.workouts} variant="workouts" />
-        <Stat label="Avg Workout Time" value={thisWeek.minutes} delta={delta.minutes} variant="minutes" />
+        <Stat
+          label="Workout Time"
+          value={formatDuration(secondsFrom(thisWeek.seconds, thisWeek.minutes))}
+          delta={delta.seconds ?? Math.round((delta.minutes || 0) * 60)}
+          formatDelta={formatDuration}
+          variant="minutes"
+        />
         <Stat label="Calories Burned" value={thisWeek.calories} delta={delta.calories} variant="calories" />
       </div>
     </div>

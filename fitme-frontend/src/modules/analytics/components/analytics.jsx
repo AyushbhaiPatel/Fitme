@@ -14,6 +14,9 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '../../../context/auth-context';
 import userStorage from '../../../utils/user-scoped-storage';
 import useAnalyticsData from '../hooks/use-analytics-data';
+import { formatDuration, secondsFrom } from '../../../utils/duration-utils';
+import { buildPeriodBuckets, bucketWorkoutHistory } from '../utils/period-buckets';
+import { NUTRITION_LOG_KEY, parseNutritionLog, bucketNutritionLog } from '../../nutrition/utils/nutrition-log';
 
 const Progress = () => {
   const [selectedPeriod, setSelectedPeriod] = useState('week');
@@ -23,287 +26,26 @@ const Progress = () => {
   const { workoutStats } = useAnalyticsData();
   const [periodData, setPeriodData] = useState({ calories: [], workouts: [], eatenCalories: [], eatenProtein: [], eatenCarbs: [], eatenFat: [] });
 
-  // Build dynamic data for different time periods
+  // Build dynamic data for different time periods.
+  // Workout series come from the backend history in the same statistics response as the cards.
   const buildPeriodData = useCallback((period) => {
-    const history = Array.isArray(user?.workoutHistory) ? user.workoutHistory : [];
-    let days = [];
-    let formatLabel;
-    let ymdKey = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-
-    switch (period) {
-      case 'week':
-        days = Array.from({ length: 7 }, (_, i) => {
-          const today = new Date();
-          const dayOfWeek = today.getDay(); // 0 = Sunday, 1 = Monday, etc.
-          const mondayOffset = dayOfWeek === 0 ? 6 : dayOfWeek - 1; // Days since Monday
-          const d = new Date(today);
-          d.setDate(today.getDate() - mondayOffset + i);
-          d.setHours(0, 0, 0, 0);
-          return d;
-        });
-        formatLabel = (d) => d.toLocaleDateString(undefined, { weekday: 'short' });
-        break;
-      
-      case 'month': {
-        const today = new Date();
-        const year = today.getFullYear();
-        const month = today.getMonth();
-        
-        // Get month start and Monday
-        const firstDayOfMonth = new Date(year, month, 1);
-        const lastDayOfMonth = new Date(year, month + 1, 0);
-        
-        // Find Monday of first week
-        const firstMonday = new Date(firstDayOfMonth);
-        const dayOfWeek = firstDayOfMonth.getDay(); // 0 = Sunday, 1 = Monday, etc.
-        const mondayOffset = dayOfWeek === 0 ? 6 : dayOfWeek - 1; // Days since Monday
-        firstMonday.setDate(firstDayOfMonth.getDate() - mondayOffset);
-        
-        // Generate weeks for this month
-        days = [];
-        let currentWeekStart = new Date(firstMonday);
-        
-        while (currentWeekStart <= lastDayOfMonth) {
-          const weekEnd = new Date(currentWeekStart);
-          weekEnd.setDate(currentWeekStart.getDate() + 6);
-          
-          // Check if week is in this month
-          if (weekEnd >= firstDayOfMonth && currentWeekStart <= lastDayOfMonth) {
-            days.push(new Date(currentWeekStart));
-          }
-          
-          currentWeekStart.setDate(currentWeekStart.getDate() + 7);
-        }
-        
-        formatLabel = (d) => {
-          if (period === 'month') {
-            const weekStart = new Date(d);
-            const weekEnd = new Date(d);
-            weekEnd.setDate(weekStart.getDate() + 6);
-            
-            // Adjust start and end dates to only show days within the current month
-            const firstDayOfMonth = new Date(year, month, 1);
-            const lastDayOfMonth = new Date(year, month + 1, 0);
-            
-            const actualStart = weekStart < firstDayOfMonth ? firstDayOfMonth : weekStart;
-            const actualEnd = weekEnd > lastDayOfMonth ? lastDayOfMonth : weekEnd;
-            
-            const startDay = actualStart.getDate();
-            const endDay = actualEnd.getDate();
-            const monthName = actualStart.toLocaleDateString(undefined, { month: 'short' });
-            
-            // Handle case where week spans across months
-            if (actualStart.getMonth() !== actualEnd.getMonth()) {
-              const endMonthName = actualEnd.toLocaleDateString(undefined, { month: 'short' });
-              return `${monthName} ${startDay} - ${endMonthName} ${endDay}`;
-            }
-            
-            return `${monthName} ${startDay}-${endDay}`;
-          }
-          return d.toLocaleDateString(undefined, { weekday: 'short' });
-        };
-        ymdKey = (d) => {
-          const weekStart = new Date(d);
-          return `${year}-${String(month + 1).padStart(2, '0')}-W${weekStart.getTime()}`;
-        };
-        break;
-      }
-      
-      case 'quarter': {
-        days = Array.from({ length: 4 }, (_, i) => {
-          const d = new Date(new Date().getFullYear(), i * 3, 1); // First month of each quarter
-          d.setHours(0, 0, 0, 0);
-          return d;
-        });
-        formatLabel = (d) => `Q${Math.floor(d.getMonth() / 3) + 1}`;
-        ymdKey = (d) => `${d.getFullYear()}-Q${Math.floor(d.getMonth() / 3) + 1}`;
-        break;
-      }
-      
-      case 'year': {
-        days = Array.from({ length: 12 }, (_, i) => {
-          const d = new Date(new Date().getFullYear(), i, 1);
-          d.setHours(0, 0, 0, 0);
-          return d;
-        });
-        formatLabel = (d) => d.toLocaleDateString(undefined, { month: 'short' });
-        ymdKey = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-        break;
-      }
-      
-      default:
-        return { calories: [], workouts: [], eatenCalories: [], eatenProtein: [], eatenCarbs: [], eatenFat: [] };
+    const buckets = buildPeriodBuckets(period);
+    if (!buckets.length) {
+      return { calories: [], workouts: [], eatenCalories: [], eatenProtein: [], eatenCarbs: [], eatenFat: [] };
     }
+    const workoutTotals = bucketWorkoutHistory(buckets, workoutStats?.history);
+    const caloriesArray = buckets.map((b, i) => ({ day: b.label, value: workoutTotals[i].calories }));
+    const workoutsArray = buckets.map((b, i) => ({ day: b.label, value: workoutTotals[i].workouts }));
 
-    // Workouts map (burned)
-    const workoutMap = days.reduce((acc, d) => {
-      acc[ymdKey(d)] = { burned: 0, workouts: 0 };
-      return acc;
-    }, {});
-
-    history.forEach((w) => {
-      if (!w.completedAt) return;
-      const d = new Date(w.completedAt);
-      d.setHours(0, 0, 0, 0);
-      let key;
-      
-      if (period === 'quarter') {
-        key = `${d.getFullYear()}-Q${Math.floor(d.getMonth() / 3) + 1}`;
-      } else if (period === 'year') {
-        key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-      } else {
-        key = ymdKey(d);
-      }
-      
-      if (workoutMap[key]) {
-        workoutMap[key].workouts += 1;
-        workoutMap[key].burned += parseInt(w.caloriesBurned || 0, 10);
-      }
-    });
-
-
-
-    // Use burned calories from workout history
-    const caloriesArray = days.map((d, i) => {
-      let key;
-      if (period === 'quarter') {
-        key = `${d.getFullYear()}-Q${Math.floor(d.getMonth() / 3) + 1}`;
-      } else if (period === 'year') {
-        key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-      } else if (period === 'month') {
-        // For month view, aggregate weekly data
-        const weekStart = new Date(d);
-        const weekEnd = new Date(d);
-        weekEnd.setDate(weekStart.getDate() + 6);
-        
-        const relevantWorkouts = history.filter(w => {
-          if (!w.completedAt) return false;
-          const workoutDate = new Date(w.completedAt);
-          return workoutDate >= weekStart && workoutDate <= weekEnd;
-        });
-        
-        const totalBurned = relevantWorkouts.reduce((sum, w) => sum + parseInt(w.caloriesBurned || 0, 10), 0);
-        return { day: formatLabel(d, i), value: totalBurned };
-      } else {
-        key = ymdKey(d);
-      }
-      
-      if (period !== 'month') {
-        return { day: formatLabel(d, i), value: workoutMap[key]?.burned || 0 };
-      }
-    }).filter(Boolean); // Remove undefined values
-
-    const workoutsArray = days.map((d, i) => {
-      if (period === 'month') {
-        // For month view, aggregate weekly data
-        const weekStart = new Date(d);
-        const weekEnd = new Date(d);
-        weekEnd.setDate(weekStart.getDate() + 6);
-        
-        const relevantWorkouts = history.filter(w => {
-          if (!w.completedAt) return false;
-          const workoutDate = new Date(w.completedAt);
-          return workoutDate >= weekStart && workoutDate <= weekEnd;
-        });
-        
-        return { day: formatLabel(d, i), value: relevantWorkouts.length };
-      } else {
-        const key = ymdKey(d);
-        return { day: formatLabel(d, i), value: workoutMap[key]?.workouts || 0 };
-      }
-    });
-
-    // Nutrition (from storage)
-    let nutrition = {};
-    try {
-      nutrition = JSON.parse(userStorage.getItem('cumulativeNutrition') || '{}');
-    } catch {
-      nutrition = {};
-    }
-
-    const aggregateNutrition = (date) => {
-      // Aggregate nutrition for period
-      if (period === 'quarter') {
-        const relevantDays = Object.keys(nutrition).filter(nk => {
-          const nd = new Date(nk);
-          const q = Math.floor(nd.getMonth() / 3) + 1;
-          return nd.getFullYear() === date.getFullYear() && q === (Math.floor(date.getMonth() / 3) + 1);
-        });
-        return relevantDays.reduce((acc, k) => {
-          const v = nutrition[k] || {};
-          acc.calories += v.calories || 0;
-          acc.protein += v.protein || 0;
-          acc.carbs += v.carbs || 0;
-          acc.fat += v.fat || 0;
-          return acc;
-        }, { calories: 0, protein: 0, carbs: 0, fat: 0 });
-      }
-
-      if (period === 'year') {
-        const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
-        const relevantDays = Object.keys(nutrition).filter(nk => nk.startsWith(key));
-        const totals = relevantDays.reduce((acc, k) => {
-          const v = nutrition[k] || {};
-          acc.calories += v.calories || 0;
-          acc.protein += v.protein || 0;
-          acc.carbs += v.carbs || 0;
-          acc.fat += v.fat || 0;
-          return acc;
-        }, { calories: 0, protein: 0, carbs: 0, fat: 0 });
-        const denom = Math.max(1, relevantDays.length);
-        return {
-          calories: Math.round(totals.calories / denom),
-          protein: Math.round(totals.protein / denom),
-          carbs: Math.round(totals.carbs / denom),
-          fat: Math.round(totals.fat / denom),
-        };
-      }
-
-      if (period === 'month') {
-        const weekStart = new Date(date);
-        const weekEnd = new Date(date);
-        weekEnd.setDate(weekStart.getDate() + 6);
-        const relevantDays = Object.keys(nutrition).filter(nk => {
-          const nd = new Date(nk);
-          return nd >= weekStart && nd <= weekEnd;
-        });
-        return relevantDays.reduce((acc, k) => {
-          const v = nutrition[k] || {};
-          acc.calories += v.calories || 0;
-          acc.protein += v.protein || 0;
-          acc.carbs += v.carbs || 0;
-          acc.fat += v.fat || 0;
-          return acc;
-        }, { calories: 0, protein: 0, carbs: 0, fat: 0 });
-      }
-
-      // week/day
-      const key = ymdKey(date);
-      const v = nutrition[key] || {};
-      return {
-        calories: v.calories || 0,
-        protein: v.protein || 0,
-        carbs: v.carbs || 0,
-        fat: v.fat || 0,
-      };
-    };
-
-    const eatenCaloriesArray = days.map((d, i) => {
-      const totals = aggregateNutrition(d);
-      return { day: formatLabel(d, i), value: totals.calories };
-    });
-    const eatenProteinArray = days.map((d, i) => {
-      const totals = aggregateNutrition(d);
-      return { day: formatLabel(d, i), value: totals.protein };
-    });
-    const eatenCarbsArray = days.map((d, i) => {
-      const totals = aggregateNutrition(d);
-      return { day: formatLabel(d, i), value: totals.carbs };
-    });
-    const eatenFatArray = days.map((d, i) => {
-      const totals = aggregateNutrition(d);
-      return { day: formatLabel(d, i), value: totals.fat };
-    });
+    // Nutrition (from storage), keyed by local calendar day and bucketed over the same
+    // [start, end) local ranges as the workout series above.
+    const nutrition = parseNutritionLog(userStorage.getItem(NUTRITION_LOG_KEY));
+    const nutritionTotals = bucketNutritionLog(buckets, nutrition, period);
+    const nutritionSeries = (macro) => buckets.map((b, i) => ({ day: b.label, value: nutritionTotals[i][macro] }));
+    const eatenCaloriesArray = nutritionSeries('calories');
+    const eatenProteinArray = nutritionSeries('protein');
+    const eatenCarbsArray = nutritionSeries('carbs');
+    const eatenFatArray = nutritionSeries('fat');
 
     return {
       calories: caloriesArray,
@@ -313,7 +55,7 @@ const Progress = () => {
       eatenCarbs: eatenCarbsArray,
       eatenFat: eatenFatArray,
     };
-  }, [user]);
+  }, [workoutStats]);
 
   // Build data for selected period
   const rebuildPeriodData = useCallback(() => {
@@ -344,7 +86,7 @@ const Progress = () => {
     startWeight: user?.weight ?? 0,
     caloriesBurned: workoutStats?.totalCaloriesBurned ?? 0,
     workoutsCompleted: workoutStats?.totalWorkouts ?? 0,
-    averageWorkoutTime: workoutStats?.averageWorkoutTimeMinutes ?? 0,
+    averageWorkoutSeconds: secondsFrom(workoutStats?.averageWorkoutTimeSeconds, workoutStats?.averageWorkoutTimeMinutes),
     longestStreak: user?.longestStreak ?? 0
   };
 
@@ -484,7 +226,7 @@ const Progress = () => {
               icon: <Clock className="w-6 h-6 text-purple-600" />,
               bg: 'bg-purple-100',
               cardBg: 'bg-purple-50',
-              value: `${monthlyProgress.averageWorkoutTime} min`,
+              value: formatDuration(monthlyProgress.averageWorkoutSeconds),
               label: 'Avg Workout Time',
               note: '—'
             }
@@ -530,8 +272,7 @@ const Progress = () => {
                   {selectedMetric === 'workouts' && 'Workouts Progress'}
                 </h3>
                 <p className="text-sm text-gray-600">
-                  {selectedMetric === 'calories' && selectedPeriod === 'month' ? 'Calories burned per week' : 'Calories burned per day'}
-                  {selectedMetric === 'workouts' && selectedPeriod === 'month' ? 'Workouts completed per week' : 'Workouts completed per day'}
+                  {`${selectedMetric === 'calories' ? 'Calories burned' : 'Workouts completed'} per ${{ week: 'day', month: 'week', quarter: 'quarter', year: 'month' }[selectedPeriod]}`}
                 </p>
               </div>
               <select

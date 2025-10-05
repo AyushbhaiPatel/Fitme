@@ -3,6 +3,7 @@ const workoutService = require('./workout.service');
 module.exports.generateWorkoutPlan = async (req, res, next) => {
   try {
     const result = await workoutService.generateWorkoutPlan(req.user._id || req.user.id, req.body);
+    if (result.retryAfter) res.set('Retry-After', String(result.retryAfter));
     return res.status(result.code).json(result);
   } catch (error) {
     next(error);
@@ -65,7 +66,7 @@ module.exports.createCustomWorkout = async (req, res, next) => {
 
 module.exports.completeWorkout = async (req, res, next) => {
   try {
-    const result = await workoutService.completeWorkout(req.user._id || req.user.id, req.body);
+    const result = await workoutService.completeWorkout(req.user._id || req.user.id, req.body, { idempotencyKey: req.get('Idempotency-Key') });
     return res.status(result.code).json(result);
   } catch (error) {
     next(error);
@@ -74,7 +75,7 @@ module.exports.completeWorkout = async (req, res, next) => {
 
 module.exports.getWorkoutStatistics = async (req, res, next) => {
   try {
-    const result = await workoutService.getWorkoutStatistics(req.user._id || req.user.id);
+    const result = await workoutService.getWorkoutStatistics(req.user._id || req.user.id, req.query);
     return res.status(result.code).json(result);
   } catch (error) {
     next(error);
@@ -83,7 +84,16 @@ module.exports.getWorkoutStatistics = async (req, res, next) => {
 
 module.exports.getWeeklySummary = async (req, res, next) => {
   try {
-    const result = await workoutService.getWeeklySummary(req.user._id || req.user.id);
+    const result = await workoutService.getWeeklySummary(req.user._id || req.user.id, req.query);
+    return res.status(result.code).json(result);
+  } catch (error) {
+    next(error);
+  }
+};
+
+module.exports.getWorkoutHistory = async (req, res, next) => {
+  try {
+    const result = await workoutService.getWorkoutHistory(req.user._id || req.user.id, req.query);
     return res.status(result.code).json(result);
   } catch (error) {
     next(error);

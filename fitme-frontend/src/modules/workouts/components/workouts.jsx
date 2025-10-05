@@ -1,10 +1,33 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '../../../context/auth-context';
 import { useAuthStore } from '../../../store/auth-store';
 import WorkoutPlanGenerator from './workout-plan-generator';
 import ExerciseDetailModal from './exercise-detail-modal';
 import useWorkoutApi from '../hooks/use-workout-api';
+import { formatDuration, formatClock, clockFormatLabel } from '../../../utils/duration-utils';
+import { buildSessionSummary } from '../utils/workout-session-utils';
+import {
+  createWorkoutSession,
+  getDisplayedDayIndex,
+  getSessionDayData,
+  buildSessionCompletionPayload,
+  resolveDaySelection,
+  resolvePlanChange,
+  isPlanDeleteBlocked,
+  selectPayloadForSave,
+  isDuplicateCompletion,
+  classifyCompletionError,
+  GUARD_REASONS,
+  sessionInProgressMessage,
+} from '../utils/active-session-utils';
+import {
+  getActiveSessionStorageKey,
+  serializeActiveSession,
+  saveActiveSession,
+  loadActiveSession,
+  clearActiveSession,
+} from '../utils/session-persistence';
 
 // Timer Hook
 const useTimer = (initialTime = 0) => {
@@ -40,8 +63,10 @@ const useTimer = (initialTime = 0) => {
 };
 
 // Exercise Card with Timer
-const ExerciseCard = React.memo(({ exercise, onComplete, isCompleted, exerciseIndex }) => {
-  const [currentSet, setCurrentSet] = useState(1);
+// Set progress (`setsDone`) is owned by the Workouts page so it can be saved and reset with the session.
+const ExerciseCard = React.memo(({ exercise, onComplete, onCompleteSet, isCompleted, exerciseIndex, setsDone = 0 }) => {
+  const totalSets = Number(exercise.sets) || 0;
+  const currentSet = isCompleted ? totalSets : Math.min(setsDone + 1, totalSets);
   const [isResting, setIsResting] = useState(false);
   const [showTimer, setShowTimer] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState(false);
@@ -76,8 +101,8 @@ const ExerciseCard = React.memo(({ exercise, onComplete, isCompleted, exerciseIn
   };
   
   const completeSet = () => {
-    if (exercise.sets && currentSet < exercise.sets) {
-      setCurrentSet(prev => prev + 1);
+    if (totalSets && currentSet < totalSets) {
+      onCompleteSet(exerciseIndex);
       startRest();
     } else {
       onComplete(exerciseIndex);
@@ -681,28 +706,19 @@ const SavedPlansModal = React.memo(({
   </AnimatePresence>
 ));
 
-// Workout Completion Modal Component
+// Workout Completion Modal Component (every exercise fully completed)
 const WorkoutCompletionModal = React.memo(({
   showModal,
-  workoutSession,
-  completedExercises,
-  totalWorkoutTime,
-  workoutPlan,
-  selectedDay,
+  summary,
+  elapsedSeconds,
   completeWorkout,
   cancelWorkoutCompletion,
   completionLoading,
-  formatWorkoutTime
+  saveError
 }) => {
-  if (!showModal || !workoutSession) return null;
+  if (!showModal || !summary) return null;
 
-  const selectedDayData = workoutPlan?.days?.[selectedDay];
-  const completedCalories = Array.from(completedExercises).reduce((total, exerciseIndex) => {
-    const exercise = selectedDayData?.exercises?.[exerciseIndex];
-    return total + (exercise?.calories_burned || 0);
-  }, 0);
-
-  const completionRate = (completedExercises.size / (workoutSession.totalExercises || 1)) * 100;
+  const completionRate = (summary.fullyCompletedCount / (summary.totalExercises || 1)) * 100;
 
   return (
     <AnimatePresence>
@@ -733,15 +749,15 @@ const WorkoutCompletionModal = React.memo(({
             <h4 className="font-semibold text-gray-900 mb-3">Session Summary</h4>
             <div className="grid grid-cols-2 gap-4">
               <div className="text-center">
-                <p className="text-2xl font-bold text-gray-900">{formatWorkoutTime(totalWorkoutTime)}</p>
+                <p className="text-2xl font-bold text-gray-900">{formatDuration(elapsedSeconds)}</p>
                 <p className="text-xs text-gray-500">Duration</p>
               </div>
               <div className="text-center">
-                <p className="text-2xl font-bold text-gray-900">{completedCalories}</p>
+                <p className="text-2xl font-bold text-gray-900">{summary.totalCalories}</p>
                 <p className="text-xs text-gray-500">Calories Burned</p>
               </div>
               <div className="text-center">
-                <p className="text-2xl font-bold text-gray-900">{completedExercises.size}</p>
+                <p className="text-2xl font-bold text-gray-900">{summary.fullyCompletedCount}</p>
                 <p className="text-xs text-gray-500">Exercises Done</p>
               </div>
               <div className="text-center">
@@ -752,28 +768,30 @@ const WorkoutCompletionModal = React.memo(({
           </div>
 
           {/* Completed Exercises */}
-          {completedExercises.size > 0 && (
+          {summary.exercises.length > 0 && (
             <div className="mb-6">
               <h4 className="font-semibold text-gray-900 mb-2">Completed Exercises</h4>
               <div className="max-h-32 overflow-y-auto">
-                {Array.from(completedExercises).map(exerciseIndex => {
-                  const exercise = selectedDayData?.exercises?.[exerciseIndex];
-                  return (
-                    <div key={exerciseIndex} className="flex items-center justify-between py-1 text-sm">
-                      <span className="text-gray-700">{exercise?.name}</span>
-                      <span className="text-gray-900 font-medium">{exercise?.calories_burned || 0} cal</span>
-                    </div>
-                  );
-                })}
+                {summary.exercises.map(row => (
+                  <div key={row.index} className="flex items-center justify-between py-1 text-sm">
+                    <span className="text-gray-700">{row.name}</span>
+                    <span className="text-gray-900 font-medium">{row.caloriesBurned} cal</span>
+                  </div>
+                ))}
               </div>
             </div>
+          )}
+
+          {saveError && (
+            <p role="alert" className="text-sm text-red-700 mb-4">{saveError}</p>
           )}
 
           {/* Action Buttons */}
           <div className="flex gap-3">
             <button
               onClick={cancelWorkoutCompletion}
-              className="flex-1 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg font-medium hover:bg-gray-200 transition-colors"
+              disabled={completionLoading}
+              className="flex-1 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg font-medium hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
               Cancel
             </button>
@@ -790,6 +808,225 @@ const WorkoutCompletionModal = React.memo(({
     </AnimatePresence>
   );
 });
+
+// End Workout Early dialog (workout not fully completed): continue, save the partial session, or discard it.
+const EndWorkoutDialog = React.memo(({
+  showModal,
+  summary,
+  elapsedSeconds,
+  onContinue,
+  onSave,
+  onDiscard,
+  saving,
+  saveError
+}) => {
+  if (!showModal || !summary) return null;
+
+  return (
+    <AnimatePresence>
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50"
+      >
+        <motion.div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="end-workout-title"
+          initial={{ scale: 0.9, y: 20 }}
+          animate={{ scale: 1, y: 0 }}
+          exit={{ scale: 0.9, y: 20 }}
+          className="bg-white rounded-2xl p-6 max-w-md w-full shadow-xl"
+        >
+          <div className="text-center mb-6">
+            <div className="w-16 h-16 bg-[#F5EFE6] rounded-full flex items-center justify-center mx-auto mb-4">
+              <svg className="w-8 h-8 text-gray-900" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+            </div>
+            <h3 id="end-workout-title" className="text-xl font-bold text-gray-900 mb-2">End workout early?</h3>
+            <p className="text-gray-600">
+              You haven&apos;t finished every exercise. Save your progress, keep going, or discard this session.
+            </p>
+          </div>
+
+          {/* Partial Session Summary */}
+          <div className="bg-gray-50 rounded-xl p-4 mb-6">
+            <h4 className="font-semibold text-gray-900 mb-3">Session Summary</h4>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="text-center">
+                <p className="text-2xl font-bold text-gray-900">{formatDuration(elapsedSeconds)}</p>
+                <p className="text-xs text-gray-500">Duration</p>
+              </div>
+              <div className="text-center">
+                <p className="text-2xl font-bold text-gray-900">{summary.totalCalories}</p>
+                <p className="text-xs text-gray-500">Calories Burned</p>
+              </div>
+              <div className="text-center">
+                <p className="text-2xl font-bold text-gray-900">{summary.completedSets}/{summary.totalSets}</p>
+                <p className="text-xs text-gray-500">Sets Done</p>
+              </div>
+              <div className="text-center">
+                <p className="text-2xl font-bold text-gray-900">{summary.fullyCompletedCount}/{summary.totalExercises}</p>
+                <p className="text-xs text-gray-500">Exercises Done</p>
+              </div>
+            </div>
+          </div>
+
+          {summary.hasProgress ? (
+            <div className="mb-6">
+              <h4 className="font-semibold text-gray-900 mb-2">Progress</h4>
+              <div className="max-h-32 overflow-y-auto">
+                {summary.exercises.map(row => (
+                  <div key={row.index} className="flex items-center justify-between py-1 text-sm">
+                    <span className="text-gray-700">
+                      {row.name}
+                      <span className="ml-2 text-xs text-gray-500">
+                        {row.fullyCompleted ? 'Completed' : `${row.completedSets}/${row.totalSets} sets`}
+                      </span>
+                    </span>
+                    <span className="text-gray-900 font-medium">{row.caloriesBurned} cal</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <p className="text-sm text-gray-600 bg-[#FFF8ED] border border-[#EADFD0] rounded-lg p-3 mb-6">
+              No sets completed. Saving will record time only ({formatDuration(elapsedSeconds)}, 0 calories).
+            </p>
+          )}
+
+          {saveError && (
+            <p role="alert" className="text-sm text-red-700 mb-4">{saveError}</p>
+          )}
+
+          {/* Action Buttons */}
+          <div className="flex flex-col gap-2">
+            <button
+              onClick={onSave}
+              disabled={saving}
+              className="w-full px-4 py-2 bg-black text-white rounded-lg font-medium hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              {saving ? 'Saving...' : 'Save Progress'}
+            </button>
+            <button
+              onClick={onContinue}
+              disabled={saving}
+              className="w-full px-4 py-2 bg-white border border-[#EADFD0] text-gray-900 rounded-lg font-medium hover:bg-[#FFF8ED] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              Continue Workout
+            </button>
+            <button
+              onClick={onDiscard}
+              disabled={saving}
+              className="w-full px-4 py-2 bg-gray-100 text-red-700 rounded-lg font-medium hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              Discard Workout
+            </button>
+          </div>
+        </motion.div>
+      </motion.div>
+    </AnimatePresence>
+  );
+});
+
+// Shown when the Workouts page mounts and an unfinished session was left in this tab (navigation, back, refresh).
+const ResumeWorkoutDialog = React.memo(({ record, onResume, onDiscard }) => {
+  if (!record) return null;
+  const { session, setsDone, completedExercises } = record;
+  const exercises = session.dayData?.exercises || [];
+  const summary = buildSessionSummary({ exercises, completedExercises, setsDone });
+  const startedAgo = formatDuration(Math.max(0, Math.floor((Date.now() - session.startTime) / 1000)));
+
+  return (
+    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="resume-workout-title"
+        className="bg-white rounded-2xl p-6 max-w-md w-full shadow-xl"
+      >
+        <div className="text-center mb-6">
+          <div className="w-16 h-16 bg-[#F5EFE6] rounded-full flex items-center justify-center mx-auto mb-4">
+            <svg className="w-8 h-8 text-gray-900" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+          </div>
+          <h3 id="resume-workout-title" className="text-xl font-bold text-gray-900 mb-2">Resume your workout?</h3>
+          <p className="text-gray-600">
+            You have an unfinished workout for {session.dayName}, started {startedAgo} ago. Resume where you left off or discard it.
+          </p>
+        </div>
+
+        <div className="bg-gray-50 rounded-xl p-4 mb-6">
+          <div className="grid grid-cols-2 gap-4">
+            <div className="text-center">
+              <p className="text-2xl font-bold text-gray-900">{summary.completedSets}/{summary.totalSets}</p>
+              <p className="text-xs text-gray-500">Sets Done</p>
+            </div>
+            <div className="text-center">
+              <p className="text-2xl font-bold text-gray-900">{summary.fullyCompletedCount}/{summary.totalExercises}</p>
+              <p className="text-xs text-gray-500">Exercises Done</p>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex flex-col gap-2">
+          <button
+            onClick={onResume}
+            className="w-full px-4 py-2 bg-black text-white rounded-lg font-medium hover:opacity-90 transition-colors"
+          >
+            Resume Workout
+          </button>
+          <button
+            onClick={onDiscard}
+            className="w-full px-4 py-2 bg-gray-100 text-red-700 rounded-lg font-medium hover:bg-gray-200 transition-colors"
+          >
+            Discard Workout
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+});
+
+// Inline warning when an action would change the displayed day/plan during an active session.
+const SessionInProgressBanner = ({ dayName, reason, onContinue, onEnd }) => {
+  const ref = useRef(null);
+  useEffect(() => {
+    ref.current?.scrollIntoView?.({ block: 'nearest', behavior: 'smooth' });
+  }, [reason]);
+
+  return (
+    <motion.div
+      ref={ref}
+      role="alert"
+      initial={{ opacity: 0, y: -10 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="bg-[#FFF8ED] border border-[#EADFD0] rounded-xl p-4 text-gray-900 mb-6 flex flex-col md:flex-row md:items-center md:justify-between gap-3"
+    >
+      <div>
+        <p className="font-semibold">{sessionInProgressMessage(dayName)}</p>
+        <p className="text-sm text-gray-600">{GUARD_REASONS[reason] || GUARD_REASONS.day}</p>
+      </div>
+      <div className="flex gap-2 shrink-0">
+        <button
+          onClick={onContinue}
+          className="px-4 py-2 bg-black text-white rounded-lg font-medium hover:opacity-90 transition-colors text-sm"
+        >
+          Continue Current Workout
+        </button>
+        <button
+          onClick={onEnd}
+          className="px-4 py-2 bg-white border border-[#EADFD0] text-gray-900 rounded-lg font-medium hover:bg-[#F5EFE6] transition-colors text-sm"
+        >
+          End Current Workout
+        </button>
+      </div>
+    </motion.div>
+  );
+};
 
 const Workouts = () => {
   const [workoutPlan, setWorkoutPlan] = useState(null);
@@ -830,16 +1067,36 @@ const Workouts = () => {
   const [workoutSession, setWorkoutSession] = useState(null);
   const [completedExercises, setCompletedExercises] = useState(new Set());
   const [workoutStartTime, setWorkoutStartTime] = useState(null);
-  const [totalWorkoutTime, setTotalWorkoutTime] = useState(0);
+  const [elapsedSeconds, setElapsedSeconds] = useState(0); // session duration in whole seconds
   const [isWorkoutActive, setIsWorkoutActive] = useState(false);
+  // Latest session for async handlers (a plan request may resolve after a session started).
+  const workoutSessionRef = useRef(null);
+  useEffect(() => {
+    workoutSessionRef.current = workoutSession;
+  }, [workoutSession]);
+  // Which guarded action triggered the "workout in progress" banner ('day' | 'generate' | 'load' | 'custom' | 'delete').
+  const [sessionWarning, setSessionWarning] = useState(null);
+
+  // Blocks plan-replacing actions while a session exists and explains why instead.
+  const guardPlanChange = useCallback((reason, action) => {
+    if (resolvePlanChange({ session: workoutSessionRef.current }) === 'blocked') {
+      setShowSavedPlans(false);
+      setShowCustomWorkout(false);
+      setSessionWarning(reason);
+      return false;
+    }
+    action?.();
+    return true;
+  }, []);
   
   // Workout session timer
   useEffect(() => {
     let interval = null;
     if (isWorkoutActive && workoutStartTime) {
-      interval = setInterval(() => {
-        setTotalWorkoutTime(Date.now() - workoutStartTime);
-      }, 1000);
+      // Derived from the start timestamp, so re-renders and throttled background tabs cannot skew it.
+      const tick = () => setElapsedSeconds(Math.floor((Date.now() - workoutStartTime) / 1000));
+      tick();
+      interval = setInterval(tick, 1000);
     }
     return () => clearInterval(interval);
   }, [isWorkoutActive, workoutStartTime]);
@@ -968,8 +1225,10 @@ const Workouts = () => {
   }, [getSavedWorkoutPlans]);
 
   const loadSavedPlan = useCallback(async (planId) => {
+    if (!guardPlanChange('load')) return;
     try {
       const response = await getWorkoutPlanById(planId);
+      if (!guardPlanChange('load')) return;
       setWorkoutPlan(response.workoutPlan);
       setSelectedDay(0);
       setShowSavedPlans(false);
@@ -977,9 +1236,15 @@ const Workouts = () => {
       setError('Failed to load workout plan.');
       console.error('Error loading saved plan:', err);
     }
-  }, [getWorkoutPlanById]);
+  }, [getWorkoutPlanById, guardPlanChange]);
 
   const deleteSavedPlan = useCallback(async (planId) => {
+    // Deleting other saved plans is fine; the plan the active session belongs to is not deleted mid-session.
+    if (isPlanDeleteBlocked({ session: workoutSessionRef.current, workoutPlan, planId })) {
+      setShowSavedPlans(false);
+      setSessionWarning('delete');
+      return;
+    }
     try {
       await deleteWorkoutPlan(planId);
       setSavedPlans(prev => prev.filter(plan => plan._id !== planId));
@@ -987,7 +1252,7 @@ const Workouts = () => {
       setError('Failed to delete workout plan.');
       console.error('Error deleting plan:', err);
     }
-  }, [deleteWorkoutPlan]);
+  }, [deleteWorkoutPlan, workoutPlan]);
 
   useEffect(() => {
     if (showSavedPlans) {
@@ -1067,7 +1332,8 @@ const Workouts = () => {
 
       console.log('Custom workout creation response:', response);
 
-      // Load the created workout plan immediately
+      // Load the created workout plan immediately (unless a session started meanwhile)
+      if (!guardPlanChange('custom')) return;
       setWorkoutPlan({
         ...response.workoutPlan,
         isCustom: true,
@@ -1131,7 +1397,8 @@ const Workouts = () => {
           isLocalDemo: true
         };
 
-        // Load workout plan
+        // Load workout plan (unless a session started meanwhile)
+        if (!guardPlanChange('custom')) return;
         setWorkoutPlan(localCustomWorkout);
         setSelectedDay(0);
         setShowCustomWorkout(false);
@@ -1156,125 +1423,222 @@ const Workouts = () => {
     } finally {
       setSaveLoading(false);
     }
-  }, [createCustomWorkout, customWorkout, showSavedPlans, fetchSavedPlans]);
+  }, [createCustomWorkout, customWorkout, showSavedPlans, fetchSavedPlans, guardPlanChange]);
 
   // Workout completion state
   const [showCompletionModal, setShowCompletionModal] = useState(false);
+  const [showEndDialog, setShowEndDialog] = useState(false);
   const [completionLoading, setCompletionLoading] = useState(false);
+  const [saveError, setSaveError] = useState(null);
+  // Completed-set counts per exercise index for the current session.
+  const [setsDone, setSetsDone] = useState({});
+  // Bumped on every session reset so exercise cards remount and drop rest timers etc.
+  const [sessionKey, setSessionKey] = useState(0);
+  // Guards against double submits: one save in flight, and one save per session (keyed by clientSessionId).
+  const saveInFlightRef = useRef(false);
+  const savedSessionRef = useRef(null);
+  // Body of a save whose outcome is unknown (network error/timeout/5xx); resent verbatim on retry.
+  const [pendingAttempt, setPendingAttempt] = useState(null);
+
+  // While a session exists the page is locked to the session's day.
+  const displayedDayIndex = getDisplayedDayIndex({ session: workoutSession, selectedDay });
+  const displayedDay = workoutPlan?.days?.[displayedDayIndex];
+  const sessionDayData = workoutSession ? getSessionDayData({ session: workoutSession, workoutPlan }) : displayedDay;
+  const sessionSummary = useMemo(
+    () => buildSessionSummary({ exercises: sessionDayData?.exercises, completedExercises, setsDone }),
+    [sessionDayData, completedExercises, setsDone]
+  );
+
+  // Active session survives in-app navigation and refresh via sessionStorage (per tab, per user).
+  const storageKey = getActiveSessionStorageKey(user?.id || user?._id);
+  const [resumeCandidate, setResumeCandidate] = useState(() => loadActiveSession(storageKey));
+
+  useEffect(() => {
+    if (!workoutSession) return;
+    saveActiveSession(storageKey, serializeActiveSession({
+      session: workoutSession,
+      workoutPlan,
+      setsDone,
+      completedExercises: [...completedExercises],
+      pendingAttempt,
+    }));
+  }, [storageKey, workoutSession, workoutPlan, setsDone, completedExercises, pendingAttempt]);
+
+  // Browser refresh/close warning, only while a session exists.
+  useEffect(() => {
+    if (!workoutSession) return undefined;
+    const handleBeforeUnload = (event) => {
+      event.preventDefault();
+      event.returnValue = '';
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [workoutSession]);
+
+  // Clears all temporary session state. Called only on successful save and explicit discard.
+  const resetSession = useCallback(() => {
+    clearActiveSession(storageKey);
+    setSessionWarning(null);
+    setPendingAttempt(null);
+    setShowCompletionModal(false);
+    setShowEndDialog(false);
+    setSaveError(null);
+    setIsWorkoutActive(false);
+    setWorkoutSession(null);
+    setWorkoutStartTime(null);
+    setElapsedSeconds(0);
+    setCompletedExercises(new Set());
+    setSetsDone({});
+    setSessionKey(key => key + 1);
+  }, [storageKey]);
 
   // Workout session management functions
   const startWorkoutSession = useCallback(() => {
-    setWorkoutSession({
-      dayIndex: selectedDay,
-      startTime: Date.now(),
-      totalExercises: workoutPlan?.days?.[selectedDay]?.exercises?.length || 0
-    });
-    setWorkoutStartTime(Date.now());
+    if (workoutSessionRef.current || !workoutPlan?.days?.[selectedDay]) return;
+    // New session: new clientSessionId, plan id and day snapshot; all set progress starts from zero.
+    const session = createWorkoutSession({ workoutPlan, dayIndex: selectedDay });
+    workoutSessionRef.current = session;
+    setWorkoutSession(session);
+    setWorkoutStartTime(session.startTime);
+    setElapsedSeconds(0);
     setIsWorkoutActive(true);
     setCompletedExercises(new Set());
+    setSetsDone({});
+    setPendingAttempt(null);
+    setSessionWarning(null);
+    setSaveError(null);
+    setSessionKey(key => key + 1);
   }, [selectedDay, workoutPlan]);
 
+  // Restores a session left via navigation/refresh: same plan, day, start time, progress and clientSessionId.
+  const resumeStoredSession = useCallback(() => {
+    const record = resumeCandidate;
+    setResumeCandidate(null);
+    if (!record || workoutSessionRef.current) return;
+    workoutSessionRef.current = record.session;
+    setWorkoutPlan(record.plan);
+    setSelectedDay(record.session.dayIndex);
+    setWorkoutSession(record.session);
+    setWorkoutStartTime(record.session.startTime);
+    setElapsedSeconds(Math.max(0, Math.floor((Date.now() - record.session.startTime) / 1000)));
+    setCompletedExercises(new Set(record.completedExercises));
+    setSetsDone(record.setsDone);
+    setPendingAttempt(record.pendingAttempt);
+    setSessionWarning(null);
+    setSaveError(null);
+    setShowCompletionModal(false);
+    setShowEndDialog(false);
+    setIsWorkoutActive(true);
+    setSessionKey(key => key + 1);
+  }, [resumeCandidate]);
+
+  // Explicit discard of a stored session from the resume prompt: nothing is sent to the backend.
+  const discardStoredSession = useCallback(() => {
+    clearActiveSession(storageKey);
+    setResumeCandidate(null);
+  }, [storageKey]);
+
+  // Day buttons: locked to the session day while a session exists.
+  const handleDaySelect = useCallback((index) => {
+    const decision = resolveDaySelection({ session: workoutSessionRef.current, selectedDay, requestedDay: index });
+    if (decision === 'select') setSelectedDay(index);
+    else if (decision === 'blocked') setSessionWarning('day');
+  }, [selectedDay]);
+
   const endWorkoutSession = useCallback(() => {
+    setSessionWarning(null);
     setIsWorkoutActive(false);
-    const session = {
-      ...workoutSession,
-      endTime: Date.now(),
-      totalTime: totalWorkoutTime,
-      completedCount: completedExercises.size,
-      completionRate: (completedExercises.size / (workoutSession?.totalExercises || 1)) * 100
-    };
-    
-    console.log('Workout session completed:', session);
-    
-    // Show completion modal if exercises completed
-    if (completedExercises.size > 0) {
+    // Take the final duration from the clock rather than the last tick (which can be up to 1s stale).
+    const finalSeconds = workoutStartTime ? Math.floor((Date.now() - workoutStartTime) / 1000) : elapsedSeconds;
+    setElapsedSeconds(finalSeconds);
+    setSaveError(null);
+
+    // Only a fully completed workout goes to the "Workout Complete" modal; anything less asks first.
+    if (sessionSummary.isFullyComplete) {
       setShowCompletionModal(true);
     } else {
-      // Reset if no exercises completed
-      setWorkoutSession(null);
-      setWorkoutStartTime(null);
-      setTotalWorkoutTime(0);
+      setShowEndDialog(true);
     }
-  }, [workoutSession, totalWorkoutTime, completedExercises]);
+  }, [workoutStartTime, elapsedSeconds, sessionSummary]);
 
-  const completeWorkout = useCallback(async () => {
+  // Back to the active session. Elapsed time is derived from workoutStartTime, so time spent in the dialog counts.
+  const continueWorkoutSession = useCallback(() => {
+    if (saveInFlightRef.current) return;
+    setShowCompletionModal(false);
+    setShowEndDialog(false);
+    setSaveError(null);
+    setIsWorkoutActive(true);
+  }, []);
+
+  // Saves the ended session (full or partial). Sends at most one request per session.
+  const saveWorkoutSession = useCallback(async () => {
     if (!workoutSession) return;
+    if (saveInFlightRef.current || savedSessionRef.current === workoutSession.clientSessionId) return;
+    saveInFlightRef.current = true;
 
     setCompletionLoading(true);
+    setSaveError(null);
+    // Always the session's own day, plan id and clientSessionId (never the displayed day/plan).
+    const { summary, payload: freshPayload } = buildSessionCompletionPayload({
+      session: workoutSession,
+      workoutPlan,
+      completedExercises,
+      setsDone,
+      durationSeconds: elapsedSeconds,
+    });
+    const isPartial = !summary.isFullyComplete;
+    const workoutData = selectPayloadForSave({ freshPayload, pendingAttempt });
+
     try {
-      const durationMinutes = Math.round(totalWorkoutTime / (1000 * 60));
-      const selectedDayData = workoutPlan?.days?.[selectedDay];
-      
-      // Calculate calories burned
-      const completedCalories = Array.from(completedExercises).reduce((total, exerciseIndex) => {
-        const exercise = selectedDayData?.exercises?.[exerciseIndex];
-        return total + (exercise?.calories_burned || 0);
-      }, 0);
+      const result = await completeWorkoutRequest(workoutData);
+      // A repeat of an already-recorded clientSessionId (data.duplicate) is a success like any other.
+      if (isDuplicateCompletion(result)) {
+        console.info('Workout session was already recorded; treating as saved.');
+      }
+      savedSessionRef.current = workoutSession.clientSessionId;
+      resetSession();
 
-      // Prepare completed exercises data
-      const completedExercisesData = Array.from(completedExercises).map(exerciseIndex => {
-        const exercise = selectedDayData?.exercises?.[exerciseIndex];
-        return {
-          name: exercise?.name || 'Unknown Exercise',
-          completed: true,
-          caloriesBurned: exercise?.calories_burned || 0
-        };
-      });
-
-      const workoutData = {
-        workoutId: workoutPlan?._id || null,
-        caloriesBurned: completedCalories,
-        durationMinutes: Math.max(durationMinutes, 1), // Minimum 1 minute
-        completedExercises: completedExercisesData,
-        workoutName: `${selectedDayData?.day || 'Workout'} - ${selectedDayData?.workout_type || 'Custom'}`
-      };
-
-      console.log('Completing workout with data:', workoutData);
-
-      const response = await completeWorkoutRequest(workoutData);
-      
-      console.log('Workout completed successfully:', response);
-      
-      // Show success message
-      setError(`✅ Workout completed! ${completedCalories} calories burned in ${durationMinutes} minutes.`);
+      const duration = formatDuration(workoutData.durationSeconds);
+      if (!isPartial) {
+        setError(`✅ Workout completed! ${workoutData.caloriesBurned} calories burned in ${duration}.`);
+      } else if (summary.hasProgress) {
+        setError(`✅ Progress saved: ${summary.completedSets}/${summary.totalSets} sets, ${workoutData.caloriesBurned} calories in ${duration}.`);
+      } else {
+        setError(`✅ Progress saved: ${duration} recorded, 0 calories (no sets completed).`);
+      }
       setTimeout(() => setError(null), 5000);
 
-      // Refresh user profile for updated stats
-      try {
-        await getCurrentUser();
-      } catch (refreshError) {
+      // Refresh user profile for updated stats, and notify other pages to refresh.
+      getCurrentUser({ silent: true }).catch(refreshError => {
         console.warn('Failed to refresh user after workout completion:', refreshError);
-      }
-
-      // Notify other pages to refresh
+      });
       try {
         window.dispatchEvent(new Event('workoutStatsUpdated'));
       } catch (refreshError) {
         console.warn('Failed to dispatch workout stats refresh event:', refreshError);
       }
-
-      // Reset session
-      setWorkoutSession(null);
-      setWorkoutStartTime(null);
-      setTotalWorkoutTime(0);
-      setCompletedExercises(new Set());
-      setShowCompletionModal(false);
-
     } catch (err) {
       console.error('Error completing workout:', err);
-      setError('Failed to save workout completion. Please try again.');
+      const failure = classifyCompletionError(err);
+      if (failure.kind === 'conflict') {
+        // Same clientSessionId, different payload: show the server's message and keep the session.
+        setSaveError(failure.message);
+      } else {
+        // Outcome unknown: remember the exact body so a retry (same clientSessionId) can be deduplicated.
+        if (failure.kind === 'unknown') setPendingAttempt(workoutData);
+        setSaveError(isPartial ? 'Failed to save progress. Please try again.' : 'Failed to save workout completion. Please try again.');
+      }
     } finally {
+      saveInFlightRef.current = false;
       setCompletionLoading(false);
     }
-  }, [completeWorkoutRequest, completedExercises, getCurrentUser, selectedDay, totalWorkoutTime, workoutPlan, workoutSession]);
+  }, [completeWorkoutRequest, completedExercises, elapsedSeconds, getCurrentUser, pendingAttempt, resetSession, setsDone, workoutPlan, workoutSession]);
 
-  const cancelWorkoutCompletion = useCallback(() => {
-    setShowCompletionModal(false);
-    setWorkoutSession(null);
-    setWorkoutStartTime(null);
-    setTotalWorkoutTime(0);
-    setCompletedExercises(new Set());
-  }, []);
+  // Explicit discard: nothing is sent to the backend.
+  const discardWorkoutSession = useCallback(() => {
+    if (saveInFlightRef.current) return;
+    resetSession();
+  }, [resetSession]);
 
   const completeExercise = useCallback((exerciseIndex) => {
     setCompletedExercises(prev => {
@@ -1284,15 +1648,9 @@ const Workouts = () => {
     });
   }, []);
 
-  const formatWorkoutTime = useCallback((milliseconds) => {
-    const totalSeconds = Math.floor(milliseconds / 1000);
-    const minutes = Math.floor(totalSeconds / 60);
-    const seconds = totalSeconds % 60;
-    return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+  const completeSet = useCallback((exerciseIndex) => {
+    setSetsDone(prev => ({ ...prev, [exerciseIndex]: (prev[exerciseIndex] || 0) + 1 }));
   }, []);
-
-
-
 
   return (
     <div className="min-h-screen p-4" style={{ backgroundColor: '#FAF7F2' }}>
@@ -1319,7 +1677,7 @@ const Workouts = () => {
             </button>
 
             <button
-              onClick={() => setShowCustomWorkout(true)}
+              onClick={() => guardPlanChange('custom', () => setShowCustomWorkout(true))}
               className="flex items-center px-6 py-3 bg-white border border-[#EADFD0] text-gray-900 rounded-xl font-medium hover:bg-[#FFF8ED] transition-all duration-200 shadow-sm"
             >
               <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1344,7 +1702,7 @@ const Workouts = () => {
         {workoutPlan && (
           <div className="flex flex-wrap gap-4 mb-8">
             <button
-              onClick={() => setWorkoutPlan(null)}
+              onClick={() => guardPlanChange('generate', () => setWorkoutPlan(null))}
               className="flex items-center px-6 py-3 bg-black text-white rounded-xl font-medium hover:bg-black transition-all duration-200"
             >
               <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1374,7 +1732,7 @@ const Workouts = () => {
             </button>
             
             <button
-              onClick={() => setShowCustomWorkout(true)}
+              onClick={() => guardPlanChange('custom', () => setShowCustomWorkout(true))}
               className="flex items-center px-6 py-3 bg-white border border-[#EADFD0] text-gray-900 rounded-xl font-medium hover:bg-[#FFF8ED] transition-colors duration-200"
             >
               <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1394,6 +1752,16 @@ const Workouts = () => {
           >
             {error}
           </motion.div>
+        )}
+
+        {/* Active-session guard warning (day switch / plan change attempted mid-session) */}
+        {workoutSession && sessionWarning && (
+          <SessionInProgressBanner
+            dayName={workoutSession.dayName}
+            reason={sessionWarning}
+            onContinue={() => setSessionWarning(null)}
+            onEnd={endWorkoutSession}
+          />
         )}
 
         {/* Workout Plan */}
@@ -1427,12 +1795,15 @@ const Workouts = () => {
               {workoutPlan.days?.map((day, index) => (
                 <button
                   key={index}
-                  onClick={() => setSelectedDay(index)}
+                  onClick={() => handleDaySelect(index)}
+                  aria-pressed={displayedDayIndex === index}
+                  aria-disabled={workoutSession && workoutSession.dayIndex !== index ? true : undefined}
+                  title={workoutSession && workoutSession.dayIndex !== index ? `Workout in progress for ${workoutSession.dayName}` : undefined}
                   className={`px-4 py-2 rounded-lg font-medium transition-colors ${
-                    selectedDay === index
+                    displayedDayIndex === index
                       ? 'bg-black text-white'
                       : 'bg-white text-gray-700 hover:bg-[#FFF8ED] border border-[#EADFD0]'
-                  }`}
+                  } ${workoutSession && workoutSession.dayIndex !== index ? 'opacity-60' : ''}`}
                 >
                   {day.day}
                 </button>
@@ -1448,7 +1819,10 @@ const Workouts = () => {
               >
                 <div className="flex justify-between items-center mb-3">
                   <h3 className="font-semibold">Session Progress</h3>
-                  <span className="font-mono text-lg font-bold">{formatWorkoutTime(totalWorkoutTime)}</span>
+                  <span className="font-mono text-lg font-bold">
+                    {formatClock(elapsedSeconds)}
+                    <span className="ml-1.5 text-xs font-normal text-gray-500">{clockFormatLabel(elapsedSeconds)}</span>
+                  </span>
                 </div>
                 <div className="w-full bg-white/20 rounded-full h-3 mb-2">
                   <div 
@@ -1466,26 +1840,26 @@ const Workouts = () => {
             )}
 
             {/* Selected Day Workout */}
-            {workoutPlan.days?.[selectedDay] && (
+            {displayedDay && (
               <div className="space-y-6">
                 <div className="bg-white rounded-2xl p-6 shadow-lg border border-gray-100">
                   <div className="flex justify-between items-start mb-4">
                     <div>
                       <h3 className="text-2xl font-bold text-gray-900">
-                        {workoutPlan.days[selectedDay].day}
+                        {displayedDay.day}
                       </h3>
                       <p className="text-lg text-gray-600">
-                        {workoutPlan.days[selectedDay].workout_type}
+                        {displayedDay.workout_type}
                       </p>
                       {isWorkoutActive && (
                           <p className="text-sm text-gray-600 font-medium mt-1">
-                          Workout in progress • {formatWorkoutTime(totalWorkoutTime)}
+                          Workout in progress • {formatClock(elapsedSeconds)} ({clockFormatLabel(elapsedSeconds)})
                         </p>
                       )}
                     </div>
                     <div className="text-right">
                       <p className="text-3xl font-bold text-gray-900">
-                        {workoutPlan.days[selectedDay].estimated_calories_burned}
+                        {displayedDay.estimated_calories_burned}
                       </p>
                       <p className="text-sm text-gray-500">Estimated Calories</p>
                       {isWorkoutActive && (
@@ -1526,7 +1900,8 @@ const Workouts = () => {
                           <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                           </svg>
-                          <span className="font-mono font-semibold">{formatWorkoutTime(totalWorkoutTime)}</span>
+                          <span className="font-mono font-semibold" title={`Elapsed time (${clockFormatLabel(elapsedSeconds)})`}>{formatClock(elapsedSeconds)}</span>
+                          <span className="ml-1.5 text-xs text-gray-500">{clockFormatLabel(elapsedSeconds)}</span>
                         </div>
                       </div>
                     )}
@@ -1535,13 +1910,15 @@ const Workouts = () => {
 
                 {/* Exercises */}
                 <div className="grid gap-6">
-                  {workoutPlan.days[selectedDay].exercises?.map((exercise, index) => (
+                  {displayedDay.exercises?.map((exercise, index) => (
                     <ExerciseCard 
-                      key={index} 
+                      key={`${sessionKey}-${displayedDayIndex}-${index}`} 
                       exercise={exercise} 
                       exerciseIndex={index}
                       onComplete={completeExercise}
+                      onCompleteSet={completeSet}
                       isCompleted={completedExercises.has(index)}
+                      setsDone={setsDone[index] || 0}
                     />
                   ))}
                 </div>
@@ -1581,15 +1958,27 @@ const Workouts = () => {
         />
         <WorkoutCompletionModal
           showModal={showCompletionModal}
-          workoutSession={workoutSession}
-          completedExercises={completedExercises}
-          totalWorkoutTime={totalWorkoutTime}
-          workoutPlan={workoutPlan}
-          selectedDay={selectedDay}
-          completeWorkout={completeWorkout}
-          cancelWorkoutCompletion={cancelWorkoutCompletion}
+          summary={sessionSummary}
+          elapsedSeconds={elapsedSeconds}
+          completeWorkout={saveWorkoutSession}
+          cancelWorkoutCompletion={continueWorkoutSession}
           completionLoading={completionLoading}
-          formatWorkoutTime={formatWorkoutTime}
+          saveError={saveError}
+        />
+        <ResumeWorkoutDialog
+          record={resumeCandidate}
+          onResume={resumeStoredSession}
+          onDiscard={discardStoredSession}
+        />
+        <EndWorkoutDialog
+          showModal={showEndDialog}
+          summary={sessionSummary}
+          elapsedSeconds={elapsedSeconds}
+          onContinue={continueWorkoutSession}
+          onSave={saveWorkoutSession}
+          onDiscard={discardWorkoutSession}
+          saving={completionLoading}
+          saveError={saveError}
         />
       </div>
     </div>

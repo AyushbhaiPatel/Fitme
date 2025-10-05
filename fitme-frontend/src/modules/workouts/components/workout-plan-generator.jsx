@@ -14,6 +14,26 @@ import {
   
 } from 'lucide-react';
 
+// "about 16 hours" / "about 5 minutes" / "a few seconds" for a Retry-After in seconds.
+const formatRetryAfter = (seconds) => {
+  if (!Number.isFinite(seconds) || seconds <= 0) return null;
+  const plural = (n, unit) => `about ${n} ${unit}${n === 1 ? '' : 's'}`;
+  if (seconds >= 3600) return plural(Math.round(seconds / 3600), 'hour');
+  if (seconds >= 60) return plural(Math.round(seconds / 60), 'minute');
+  return 'a few seconds';
+};
+
+// The server sends a user-facing message (+ errorCode, + retryAfter for AI quota / rate limits).
+const describeGenerationError = (error) => {
+  if (!error?.response) return 'Could not reach the server. Check your connection and try again.';
+  const data = error.response.data;
+  const message = data?.message || 'Failed to generate workout plan. Please try again.';
+  const wait = formatRetryAfter(Number(data?.retryAfter));
+  return wait && (data?.errorCode === 'AI_QUOTA_EXCEEDED' || data?.errorCode === 'AI_RATE_LIMITED')
+    ? `${message} (available again in ${wait})`
+    : message;
+};
+
 const WorkoutPlanGenerator = ({ onPlanGenerated, onError }) => {
   const { user } = useAuth();
   const workoutApi = useWorkoutApi();
@@ -57,14 +77,14 @@ const WorkoutPlanGenerator = ({ onPlanGenerated, onError }) => {
       const enhancedProfile = {
         ...user,
         age: calculateAge(user.dateOfBirth),
-        customOptions: showAdvanced ? customOptions : null
+        customOptions: showAdvanced ? customOptions : {}
       };
 
       console.log('Generating workout plan with enhanced profile:', enhancedProfile);
       
       const result = await workoutApi.generateWorkoutPlan(enhancedProfile);
       
-      if (result.workoutPlan) {
+      if (result?.workoutPlan?.days?.length) {
         onPlanGenerated(result);
       } else {
         onError('Failed to generate workout plan. Please try again.');
@@ -72,7 +92,7 @@ const WorkoutPlanGenerator = ({ onPlanGenerated, onError }) => {
       
     } catch (error) {
       console.error('Error generating workout plan:', error);
-      onError(error.message || 'Failed to generate workout plan. Please try again.');
+      onError(describeGenerationError(error));
     } finally {
       setGenerating(false);
     }

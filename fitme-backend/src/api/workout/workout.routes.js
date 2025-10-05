@@ -9,6 +9,7 @@ router.post('/complete', authenticate, workoutController.completeWorkout);
 router.get('/saved', authenticate, workoutController.getSavedWorkoutPlans);
 router.get('/statistics', authenticate, workoutController.getWorkoutStatistics);
 router.get('/weekly-summary', authenticate, workoutController.getWeeklySummary);
+router.get('/history', authenticate, workoutController.getWorkoutHistory);
 router.get('/:planId', authenticate, workoutController.getWorkoutPlanById);
 router.delete('/:planId', authenticate, workoutController.deleteWorkoutPlan);
 router.put('/:planId/activate', authenticate, workoutController.setActivePlan);

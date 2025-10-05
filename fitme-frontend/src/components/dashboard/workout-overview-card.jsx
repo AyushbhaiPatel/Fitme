@@ -1,8 +1,9 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowRight } from 'lucide-react';
+import { formatDuration } from '../../utils/duration-utils';
 
-const WorkoutOverviewCard = ({ totalWorkouts = 0, avgWorkout = 0, totalCaloriesBurned = 0 }) => {
+const WorkoutOverviewCard = ({ totalWorkouts = 0, avgWorkoutSeconds = 0, totalCaloriesBurned = 0 }) => {
   const navigate = useNavigate();
 
   const handleNavigate = () => {
@@ -29,8 +30,8 @@ const WorkoutOverviewCard = ({ totalWorkouts = 0, avgWorkout = 0, totalCaloriesB
           <p className="text-black font-semibold text-right">{totalWorkouts}</p>
         </div>
         <div className="flex justify-between text-sm">
-          <p className="text-gray-700 font-medium">Avg Workout (min)</p>
-          <p className="text-black font-semibold">{avgWorkout}</p>
+          <p className="text-gray-700 font-medium">Avg Workout</p>
+          <p className="text-black font-semibold">{formatDuration(avgWorkoutSeconds)}</p>
         </div>
         <div className="flex justify-between text-sm">
           <p className="text-gray-700 font-medium">Total Calories</p>

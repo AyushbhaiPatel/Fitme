@@ -10,7 +10,7 @@ const useAnalyticsData = () => {
     (async () => {
       try {
         const stats = await getWorkoutStatistics();
-        if (isMounted) setWorkoutStats(stats.statistics || stats);
+        if (isMounted) setWorkoutStats(stats?.statistics || null);
       } catch {
         if (isMounted) setWorkoutStats(null);
       }
