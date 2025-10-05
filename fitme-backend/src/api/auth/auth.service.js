@@ -1,6 +1,8 @@
+const crypto = require('crypto');
 const { Format } = require('../../config/format');
 const authDao = require('./auth.dao');
 const { generateAccessToken, generateRefreshToken } = require('../../utils/jwt');
+const { mapError } = require('../../middleware/error-handler');
 
 // Failed login tracker
 const failedAttempts = new Map();
@@ -29,8 +31,44 @@ const _recordFail = (email) => {
 
 const _clearFail = (email) => failedAttempts.delete(email);
 
+// Must match the User schema's username minlength/maxlength.
+const USERNAME_MIN = 3;
+const USERNAME_MAX = 30;
+
+const _withSuffix = (base, suffix) => `${base.slice(0, USERNAME_MAX - suffix.length)}${suffix}`;
+
+// The username is internal (not shown in the UI), so derive one that always fits the schema
+// instead of rejecting a valid email: truncate long local parts, pad short ones, and add a
+// random suffix when the name is already taken.
+const _deriveUsername = async (email) => {
+  let base = String(email).split('@')[0].trim().slice(0, USERNAME_MAX);
+  if (base.length < USERNAME_MIN) base = `${base}_user`;
+
+  if (!(await authDao.findByUsername(base))) return base;
+  for (let i = 0; i < 5; i++) {
+    const candidate = _withSuffix(base, `_${crypto.randomInt(1000, 10000)}`);
+    if (!(await authDao.findByUsername(candidate))) return candidate;
+  }
+  return _withSuffix(base, `_${crypto.randomBytes(4).toString('hex')}`);
+};
+
+// Safety net: schema validation and unique-index errors are client errors, not 500s.
+const _mapPersistenceError = (error) => {
+  // Shared mapper builds messages that never echo submitted values (Mongoose defaults do).
+  if (error?.name === 'ValidationError' && error.errors) return mapError(error);
+  if (error?.code === 11000) {
+    const field = Object.keys(error.keyPattern || error.keyValue || {})[0];
+    if (field === 'username') return Format.conflict('Username is already taken');
+    return Format.conflict('User with this email already exists');
+  }
+  return null;
+};
+
 module.exports.register = async (payload) => {
-  const { email, password, firstName, lastName, username } = payload;
+  const { email, password, firstName, lastName, username } = payload || {};
+  if (!email || !password || !firstName || !lastName) {
+    return Format.badRequest('Email, password, first name and last name are required');
+  }
 
   const existing = await authDao.findByEmail(email);
   if (existing) return Format.conflict('User with this email already exists');
@@ -40,14 +78,21 @@ module.exports.register = async (payload) => {
     if (takenUsername) return Format.conflict('Username is already taken');
   }
 
-  const user = await authDao.createUser({
-    email,
-    password,
-    firstName,
-    lastName,
-    username: username || email.split('@')[0],
-    lastLoginAt: new Date(),
-  });
+  let user;
+  try {
+    user = await authDao.createUser({
+      email,
+      password,
+      firstName,
+      lastName,
+      username: username || (await _deriveUsername(email)),
+      lastLoginAt: new Date(),
+    });
+  } catch (error) {
+    const mapped = _mapPersistenceError(error);
+    if (mapped) return mapped;
+    throw error;
+  }
 
   const accessToken = generateAccessToken(user);
   const refreshToken = generateRefreshToken(user);

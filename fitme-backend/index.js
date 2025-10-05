@@ -8,6 +8,7 @@ const rateLimit = require('express-rate-limit');
 const connectDB = require('./src/database/conn');
 const apiRoutes = require('./src/api/routes');
 const { registerDocsRoute } = require('./src/docs');
+const { errorHandler } = require('./src/middleware/error-handler');
 
 const app = express();
 
@@ -17,13 +18,22 @@ const corsOptions = {
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
+  // Lets the cross-origin frontend read how long to wait after a 429.
+  exposedHeaders: ['Retry-After'],
 };
 app.use(cors(corsOptions));
 app.options('*', cors(corsOptions));
 
 // Security
 app.use(helmet());
-app.use(rateLimit({ windowMs: 15 * 60 * 1000, max: 100, message: 'Too many requests from this IP, please try again later.' }));
+// Global abuse backstop; per-feature limits (e.g. AI chat) live on their routes.
+app.use(rateLimit({
+  windowMs: Number(process.env.RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000,
+  max: Number(process.env.RATE_LIMIT_MAX) || 1000,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, message: 'Too many requests, please try again later.', errorCode: 'RATE_LIMITED' },
+}));
 
 // Body parser
 app.use(express.json({ limit: '10mb' }));
@@ -42,15 +52,8 @@ app.use('*', (req, res) => {
   res.status(404).json({ success: false, message: 'Route not found' });
 });
 
-// Global error handler
-app.use((err, req, res, next) => {
-  console.error(err.stack);
-  res.status(500).json({
-    success: false,
-    message: 'Something went wrong!',
-    error: process.env.NODE_ENV === 'development' ? err.message : 'Internal server error',
-  });
-});
+// Global error handler: maps validation/cast/duplicate/body-parser errors to 4xx, else generic 500.
+app.use(errorHandler);
 
 // Bootstrap
 const PORT = process.env.PORT || 5000;
@@ -64,8 +67,6 @@ const startServer = async () => {
   });
 };
 
-startServer();
-
 const shutdown = (signal) => {
   console.log(`${signal} received. Shutting down gracefully...`);
   if (!server) process.exit(0);
@@ -74,13 +75,18 @@ const shutdown = (signal) => {
   });
 };
 
-process.on('SIGINT', () => shutdown('SIGINT'));
-process.on('SIGTERM', () => shutdown('SIGTERM'));
-process.on('unhandledRejection', (error) => {
-  console.error('Unhandled rejection:', error);
-});
-process.on('uncaughtException', (error) => {
-  console.error('Uncaught exception:', error);
-});
+// Only boot (DB + listen) when run directly, so tests can require the app.
+if (require.main === module) {
+  startServer();
+
+  process.on('SIGINT', () => shutdown('SIGINT'));
+  process.on('SIGTERM', () => shutdown('SIGTERM'));
+  process.on('unhandledRejection', (error) => {
+    console.error('Unhandled rejection:', error);
+  });
+  process.on('uncaughtException', (error) => {
+    console.error('Uncaught exception:', error);
+  });
+}
 
 module.exports = app;

@@ -20,14 +20,25 @@ const Register = () => {
     if (errors[name]) setErrors((prev) => ({ ...prev, [name]: '' }));
   };
 
+  // Mirrors validateRegistration in fitme-backend/src/middleware/validation.js; the backend stays authoritative.
+  const validateName = (value, label) => {
+    const v = value.trim();
+    if (!v) return `${label} is required`;
+    if (v.length < 2 || v.length > 50) return `${label} must be between 2 and 50 characters`;
+    if (!/^[a-zA-Z\s]+$/.test(v)) return `${label} can only contain letters and spaces`;
+    return null;
+  };
+
   const validateForm = () => {
     const newErrors = {};
-    if (!formData.firstName.trim()) newErrors.firstName = 'First name is required';
-    else if (formData.firstName.trim().length < 2) newErrors.firstName = 'First name must be at least 2 characters';
-    if (!formData.lastName.trim()) newErrors.lastName = 'Last name is required';
-    else if (formData.lastName.trim().length < 2) newErrors.lastName = 'Last name must be at least 2 characters';
-    if (!formData.email) newErrors.email = 'Email is required';
-    else if (!/\S+@\S+\.\S+/.test(formData.email)) newErrors.email = 'Please enter a valid email';
+    const firstNameError = validateName(formData.firstName, 'First name');
+    if (firstNameError) newErrors.firstName = firstNameError;
+    const lastNameError = validateName(formData.lastName, 'Last name');
+    if (lastNameError) newErrors.lastName = lastNameError;
+    const email = formData.email.trim();
+    if (!email) newErrors.email = 'Email is required';
+    else if (email.length > 254) newErrors.email = 'Email must be at most 254 characters';
+    else if (!/^[^\s@]{1,64}@[^\s@]+\.[^\s@.]{2,}$/.test(email)) newErrors.email = 'Please enter a valid email';
     if (!formData.password) newErrors.password = 'Password is required';
     else if (formData.password.length < 8) newErrors.password = 'Password must be at least 8 characters long';
     else if (!/[a-z]/.test(formData.password)) newErrors.password = 'Password must include at least one lowercase letter';
