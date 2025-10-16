@@ -10,30 +10,15 @@ import {
   AlertTriangle,
   Settings as SettingsIcon
 } from 'lucide-react';
-import { useToast } from '../../../hooks/use-toast';
-import DeleteAccountModal from '../../../components/delete-account-modal';
-import { useAuthStore } from '../../../store/auth-store';
+import DeleteAccountDialog from './delete-account-dialog';
 import useDeleteAccount from '../hooks/use-delete-account';
 
 const Settings = () => {
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
-  const { showToast } = useToast();
-  const { logout } = useAuthStore();
-  const deleteAccount = useDeleteAccount();
+  // On success the hook clears the local session and navigates to the login page.
+  const { deleteAccount, isDeleting } = useDeleteAccount();
 
   // Change Password functionality removed per request
-
-  const handleDeleteAccount = async (currentPassword) => {
-    try {
-      await deleteAccount(currentPassword);
-      showToast({ type: 'success', message: 'Account deleted successfully' });
-      await logout();
-      window.location.href = '/';
-    } catch (err) {
-      const msg = err.response?.data?.message || 'Failed to delete account';
-      throw new Error(msg);
-    }
-  };
 
   const ToggleSwitch = ({ enabled, onToggle, label, description }) => (
     <div className="flex items-center justify-between">
@@ -149,10 +134,11 @@ const Settings = () => {
         </motion.div>
       </div>
 
-      <DeleteAccountModal
+      <DeleteAccountDialog
         isOpen={isDeleteModalOpen}
         onClose={() => setIsDeleteModalOpen(false)}
-        onDelete={handleDeleteAccount}
+        onDelete={deleteAccount}
+        isDeleting={isDeleting}
       />
     </div>
   );
