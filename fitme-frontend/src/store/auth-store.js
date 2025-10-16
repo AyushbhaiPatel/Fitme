@@ -21,6 +21,9 @@ const persistUser = (user) => {
   if (user) localStorage.setItem('fitme_user', JSON.stringify(user));
 };
 
+// Shared in-flight /auth/me request (dedupes StrictMode double effects and overlapping callers)
+let currentUserRequest = null;
+
 export const useAuthStore = create((set, get) => ({
   user: null,
   userStats: null,
@@ -92,19 +95,27 @@ export const useAuthStore = create((set, get) => ({
     return { success: true };
   },
 
-  getCurrentUser: async () => {
-    set({ loading: true });
-    try {
-      const res = await axiosClient.get('/auth/me');
-      const user = res.data.data.user;
-      persistUser(user);
-      set({ user, isAuthenticated: true, loading: false, error: null });
-      return user;
-    } catch (err) {
-      const error = handleApiError(err);
-      set({ loading: false, error: error.message });
-      throw error;
-    }
+  // `silent` skips the global loading flag, which would otherwise unmount the current page.
+  // Concurrent callers share one in-flight request so /auth/me is only hit once.
+  getCurrentUser: ({ silent = false } = {}) => {
+    if (!silent) set({ loading: true });
+    if (currentUserRequest) return currentUserRequest;
+    currentUserRequest = (async () => {
+      try {
+        const res = await axiosClient.get('/auth/me');
+        const user = res.data.data.user;
+        persistUser(user);
+        set({ user, isAuthenticated: true, loading: false, error: null });
+        return user;
+      } catch (err) {
+        const error = handleApiError(err);
+        set({ loading: false, error: error.message });
+        throw error;
+      } finally {
+        currentUserRequest = null;
+      }
+    })();
+    return currentUserRequest;
   },
 
   updateUserProfile: async (profileData) => {

@@ -14,12 +14,14 @@ export const useAuth = () => {
 export const AuthProvider = ({ children }) => {
   const store = useAuthStore();
 
-  // Initialize auth state on mount
+  // Initialize auth state on mount. Read live store state (not the render closure) so the
+  // StrictMode double effect doesn't init twice; refresh silently so the cached user renders immediately.
   useEffect(() => {
-    if (!store.isInitialized) {
-      store.initializeAuth();
+    const { isInitialized, initializeAuth, getCurrentUser } = useAuthStore.getState();
+    if (!isInitialized) {
+      initializeAuth();
       const token = localStorage.getItem('fitme_token');
-      if (token) store.getCurrentUser().catch(() => {});
+      if (token) getCurrentUser({ silent: true }).catch(() => {});
     }
   }, []);
 

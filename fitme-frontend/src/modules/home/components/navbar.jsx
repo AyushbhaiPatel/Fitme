@@ -4,6 +4,7 @@ import { Link as RouterLink } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '../../../context/auth-context';
 import { Menu, X, User, LogOut, Settings, ChevronDown } from 'lucide-react';
+import { clearUnscopedUserData } from '../../../utils/user-local-data';
 
 const navItems = ['home', 'features', 'testimonials', 'plans', 'FAQs'];
 
@@ -205,6 +206,7 @@ const Navbar = () => {
               <button 
                               onClick={() => {
                                 logout();
+                                clearUnscopedUserData();
                                 setIsProfileDropdownOpen(false);
                               }}
                               className="flex items-center gap-3 w-full px-4 py-2 text-red-600 hover:bg-red-50 transition-colors duration-200"
@@ -336,6 +338,7 @@ const Navbar = () => {
                   <button 
                     onClick={() => {
                       logout();
+                      clearUnscopedUserData();
                       setIsMobileMenuOpen(false);
                     }}
                     className="flex items-center gap-2 w-full px-4 py-2 bg-gradient-to-r from-red-500 to-red-600 text-white rounded-lg font-medium hover:from-red-600 hover:to-red-700 transition-all duration-200"

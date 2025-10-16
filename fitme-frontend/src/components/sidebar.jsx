@@ -4,6 +4,7 @@ import { motion } from 'framer-motion';
 import { useAuth } from '../context/auth-context';
 import { LayoutDashboard, Dumbbell, Utensils, Sparkles, Target, Lock, User, LogOut } from 'lucide-react';
 import { ROUTES } from '../routes/local-routes';
+import { clearUnscopedUserData } from '../utils/user-local-data';
 
 const navItems = [
   { label: 'Dashboard', icon: LayoutDashboard, path: ROUTES.DASHBOARD },
@@ -23,6 +24,7 @@ export default function Sidebar({ isExpanded = false, isMobile = false, onClose 
 
   const handleLogout = async () => {
     try { await logout(); } catch { /* ignore */ }
+    clearUnscopedUserData();
     navigate('/');
   };
 

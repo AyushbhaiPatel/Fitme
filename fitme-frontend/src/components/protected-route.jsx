@@ -1,6 +1,7 @@
 import React from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/auth-context';
+import { syncSignedInUser } from '../utils/user-local-data';
 
 const ProtectedRoute = ({ children, requireCompleteProfile = true }) => {
   const { user, isAuthenticated, loading, isInitialized } = useAuth();
@@ -18,6 +19,10 @@ const ProtectedRoute = ({ children, requireCompleteProfile = true }) => {
   }
 
   if (!isAuthenticated) return <Navigate to="/" replace />;
+
+  // Synchronous (during render, idempotent) so a previous user's unscoped data is gone before
+  // any child page reads it in its own render/effects.
+  syncSignedInUser(user);
 
   if (requireCompleteProfile) {
     if (!user?.profileCompleted && location.pathname !== '/onboarding') {

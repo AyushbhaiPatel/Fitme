@@ -2,6 +2,7 @@
 
 import axios from 'axios';
 import { ENV } from '../../constants/environment';
+import { clearUnscopedUserData } from '../../utils/user-local-data';
 
 const axiosClient = axios.create({
   baseURL: ENV.API_URL,
@@ -44,7 +45,9 @@ axiosClient.interceptors.response.use(
   (response) => response,
   async (error) => {
     const originalRequest = error.config;
-    if (error.response?.status === 401 && !originalRequest._retry) {
+    // A rejected refresh must not trigger another refresh (that looped until the rate limiter hit).
+    const isRefreshCall = originalRequest?.url?.includes('/auth/refresh');
+    if (error.response?.status === 401 && !originalRequest._retry && !isRefreshCall) {
       originalRequest._retry = true;
       try {
         const refreshToken = localStorage.getItem('fitme_refresh_token');
@@ -60,6 +63,7 @@ axiosClient.interceptors.response.use(
         removeToken();
         localStorage.removeItem('fitme_refresh_token');
         localStorage.removeItem('fitme_user');
+        clearUnscopedUserData();
         window.location.href = '/login';
         return Promise.reject(refreshError);
       }
