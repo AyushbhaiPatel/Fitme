@@ -1,5 +1,5 @@
 const { Format } = require('../../config/format');
-const { generateContent, isAvailable } = require('../../config/gemini');
+const gemini = require('../../config/gemini');
 const aicoachDao = require('./aicoach.dao');
 
 const cleanResponseText = (text) => {
@@ -71,7 +71,7 @@ Return ONLY a valid JSON array:
   }
 ]`;
 
-    const text = await generateContent(prompt, { maxOutputTokens: 2048 });
+    const text = await gemini.generateContent(prompt, { maxOutputTokens: 4096, thinkingLevel: 'minimal' }, { label: 'aicoach' });
     const match = text.match(/\[[\s\S]*\]/);
     return match ? JSON.parse(match[0]) : null;
   } catch (err) {
@@ -80,15 +80,27 @@ Return ONLY a valid JSON array:
   }
 };
 
+// Maps a Gemini failure to the chat error contract: { code, success:false, message, errorCode }.
+const mapProviderError = (err) => {
+  if (gemini.isRateLimitError(err)) {
+    const res = { code: 429, success: false, message: 'The AI coach is busy right now. Please try again in a moment.', errorCode: 'AI_RATE_LIMITED' };
+    const retryAfter = gemini.getRetryAfterSeconds(err);
+    if (retryAfter) res.retryAfter = retryAfter;
+    return res;
+  }
+  if (gemini.isAuthError(err)) {
+    return { code: 503, success: false, message: 'The AI coach is temporarily unavailable.', errorCode: 'AI_AUTH_ERROR' };
+  }
+  return { code: 502, success: false, message: 'The AI coach could not generate a response. Please try again.', errorCode: 'AI_PROVIDER_ERROR' };
+};
+
 module.exports.chat = async (message, conversationHistory, user) => {
   if (!message || message.trim().length === 0) {
-    return Format.badRequest('Message is required');
+    return { ...Format.badRequest('Message is required'), errorCode: 'BAD_REQUEST' };
   }
 
-  if (!isAvailable()) {
-    return Format.response(200, false, 'AI service not configured', {
-      response: "I'm having trouble connecting to the AI service. Please try again later.",
-    });
+  if (!gemini.isAvailable()) {
+    return { code: 503, success: false, message: 'AI service not configured', errorCode: 'AI_NOT_CONFIGURED' };
   }
 
   const systemPrompt = buildSystemPrompt(user);
@@ -98,8 +110,17 @@ module.exports.chat = async (message, conversationHistory, user) => {
   });
   context += `User: ${message}\nAssistant:`;
 
-  const rawResponse = await generateContent(context, { maxOutputTokens: 1024 });
-  const cleaned = cleanResponseText(rawResponse);
+  let cleaned;
+  try {
+    const rawResponse = await gemini.generateContent(context, { maxOutputTokens: 2048, thinkingLevel: 'minimal' }, { label: 'aicoach' });
+    cleaned = cleanResponseText(rawResponse);
+  } catch (err) {
+    return mapProviderError(err);
+  }
+  if (!cleaned) {
+    console.error('[aicoach] Gemini error: empty response');
+    return mapProviderError(new Error('Empty response from Gemini'));
+  }
 
   let recipes = null;
   const lower = message.toLowerCase();
@@ -143,8 +164,8 @@ module.exports.getSuggestions = (user) => {
 
 module.exports.healthCheck = async () => {
   return Format.success({
-    status: isAvailable() ? 'healthy' : 'degraded',
-    geminiAvailable: isAvailable(),
+    status: gemini.isAvailable() ? 'healthy' : 'degraded',
+    geminiAvailable: gemini.isAvailable(),
     timestamp: new Date().toISOString(),
   });
 };

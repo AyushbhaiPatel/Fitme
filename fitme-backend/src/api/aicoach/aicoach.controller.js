@@ -4,6 +4,7 @@ module.exports.chat = async (req, res, next) => {
   try {
     const { message, conversationHistory = [] } = req.body;
     const result = await aicoachService.chat(message, conversationHistory, req.user);
+    if (result.retryAfter) res.set('Retry-After', String(result.retryAfter));
     return res.status(result.code).json(result);
   } catch (error) {
     next(error);

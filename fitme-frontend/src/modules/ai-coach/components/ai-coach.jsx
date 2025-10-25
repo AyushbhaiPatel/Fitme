@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Send, 
@@ -17,6 +17,35 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../../../context/auth-context';
 import useAiCoachApi from '../hooks/use-ai-coach-api';
+import { getChatErrorMessage } from '../utils/chat-error';
+
+const DEFAULT_SUGGESTIONS = [
+  "How do I set up my workout routine?",
+  "What's a good beginner workout plan?",
+  "Can you suggest healthy recipes for weight loss?",
+  "How can I track my nutrition?",
+  "What exercises are best for building muscle?",
+  "How do I stay motivated?",
+  "Can you create a meal plan for me?",
+  "What's the best way to track progress?"
+];
+
+// One shared request per user, so StrictMode double effects and user object
+// refreshes don't refetch. Cleared on failure so a later mount can retry.
+let suggestionsRequest = null;
+
+const loadSuggestions = (getSuggestions, userId) => {
+  if (suggestionsRequest?.userId === userId) return suggestionsRequest.promise;
+  const promise = getSuggestions().then((res) => {
+    const suggestions = res?.suggestions ?? res?.data?.suggestions;
+    return Array.isArray(suggestions) ? suggestions : DEFAULT_SUGGESTIONS;
+  });
+  suggestionsRequest = { userId, promise };
+  promise.catch(() => {
+    if (suggestionsRequest?.promise === promise) suggestionsRequest = null;
+  });
+  return promise;
+};
 
 const AiCoach = () => {
   const { user } = useAuth();
@@ -62,11 +91,13 @@ const AiCoach = () => {
   const [inputMessage, setInputMessage] = useState('');
   const [isTyping, setIsTyping] = useState(false);
   const [suggestedQuestions, setSuggestedQuestions] = useState([]);
+  const [suggestionsLoading, setSuggestionsLoading] = useState(true);
   const [showRecipes, setShowRecipes] = useState(false);
   const [currentRecipes, setCurrentRecipes] = useState(null);
   const [, setError] = useState(null);
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
+  const sendInFlightRef = useRef(false);
 
   /**
    * Clean text to remove any remaining formatting characters
@@ -106,59 +137,40 @@ const AiCoach = () => {
     }
   }, [messages]);
 
-  const fetchSuggestedQuestions = useCallback(async () => {
-    try {
-      // Debug: Check if user is authenticated and token exists
-      const token = localStorage.getItem('fitme_token');
-      console.log('Debug: Token exists:', !!token);
-      console.log('Debug: User authenticated:', !!user);
-      console.log('Debug: User object:', user);
-      
-      if (!token || !user) {
-        console.warn('No authentication token or user found');
-        setSuggestedQuestions([
-          "How do I set up my workout routine?",
-          "What's a good beginner workout plan?",
-          "Can you suggest healthy recipes for weight loss?",
-          "How can I track my nutrition?",
-          "What exercises are best for building muscle?",
-          "How do I stay motivated?",
-          "Can you create a meal plan for me?",
-          "What's the best way to track progress?"
-        ]);
-        return;
-      }
-      
-      const response = await aiCoachApi.getSuggestions();
-      if (response.success) {
-        setSuggestedQuestions(response.suggestions);
-      }
-    } catch (error) {
-      console.error('Error fetching suggestions:', error);
-      
-      // If 401 error, set error message
-      if (error.response?.status === 401) {
-        setError('Please login to access AI Coach features');
-      }
-      
-      // Use default suggestions if API fails
-      setSuggestedQuestions([
-        "How do I set up my workout routine?",
-        "What's a good beginner workout plan?",
-        "Can you suggest healthy recipes for weight loss?",
-        "How can I track my nutrition?",
-        "What exercises are best for building muscle?",
-        "How do I stay motivated?",
-        "Can you create a meal plan for me?",
-        "What's the best way to track progress?"
-      ]);
-    }
-  }, [aiCoachApi, user]);
+  // Keyed on the user id (not the user object) so a refreshed /auth/me doesn't refetch
+  const userId = user?.id || user?._id;
 
   // Fetch personalized suggestions on component mount
   useEffect(() => {
-    fetchSuggestedQuestions();
-  }, [fetchSuggestedQuestions]);
+    let cancelled = false;
+
+    if (!userId || !localStorage.getItem('fitme_token')) {
+      setSuggestedQuestions(DEFAULT_SUGGESTIONS);
+      setSuggestionsLoading(false);
+      return undefined;
+    }
+
+    loadSuggestions(aiCoachApi.getSuggestions, userId)
+      .then((suggestions) => {
+        if (!cancelled) setSuggestedQuestions(suggestions);
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        console.error('Error fetching suggestions:', error);
+        if (error.response?.status === 401) {
+          setError('Please login to access AI Coach features');
+        }
+        // Use default suggestions if API fails
+        setSuggestedQuestions(DEFAULT_SUGGESTIONS);
+      })
+      .finally(() => {
+        if (!cancelled) setSuggestionsLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [aiCoachApi, userId]);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -170,11 +182,15 @@ const AiCoach = () => {
 
   const handleSendMessage = async () => {
     if (!inputMessage.trim()) return;
+    // Synchronous guard: a rapid double Enter/click must not send twice
+    if (sendInFlightRef.current) return;
+    sendInFlightRef.current = true;
 
+    const messageText = inputMessage;
     const userMessage = {
       id: Date.now(),
       type: 'user',
-      content: inputMessage,
+      content: messageText,
       timestamp: new Date()
     };
 
@@ -192,46 +208,39 @@ const AiCoach = () => {
       }));
 
       // Call the AI Coach API
-      const response = await aiCoachApi.chat(inputMessage, conversationHistory);
+      const result = await aiCoachApi.chat(messageText, conversationHistory);
 
-      if (response.success) {
-        // Clean the response text before displaying
-        const cleanedResponse = cleanDisplayText(response.response);
-        
-        const botResponse = {
-          id: Date.now() + 1,
-          type: 'bot',
-          content: cleanedResponse,
-          timestamp: new Date()
-        };
-        
-        setMessages(prev => [...prev, botResponse]);
+      if (typeof result?.response !== 'string' || !result.response.trim()) {
+        throw new Error(result?.message || 'Empty response from AI Coach');
+      }
 
-        // If recipes were generated, show them
-        if (response.recipes && response.recipes.length > 0) {
-          setCurrentRecipes(response.recipes);
-          setShowRecipes(true);
-        }
-      } else {
-        throw new Error(response.message || 'Failed to get response');
+      // Clean the response text before displaying
+      const cleanedResponse = cleanDisplayText(result.response);
+
+      const botResponse = {
+        id: Date.now() + 1,
+        type: 'bot',
+        content: cleanedResponse,
+        timestamp: new Date()
+      };
+
+      setMessages(prev => [...prev, botResponse]);
+
+      // If recipes were generated, show them
+      if (Array.isArray(result.recipes) && result.recipes.length > 0) {
+        setCurrentRecipes(result.recipes);
+        setShowRecipes(true);
       }
     } catch (error) {
       console.error('Error sending message:', error);
-      
-      let errorMessage = "I'm having trouble connecting right now. ";
-      
-      if (error.response?.status === 500 && error.response?.data?.error?.includes('GEMINI_API_KEY')) {
-        errorMessage += "The AI service is not properly configured. Please contact the administrator.";
-      } else if (error.response?.status === 429) {
-        errorMessage += "We've hit the rate limit. Please try again in a few moments.";
-      } else if (error.response?.status === 401) {
-        errorMessage += "Your session has expired. Please log in again.";
+
+      const { type, message: errorMessage } = getChatErrorMessage(error);
+
+      if (type === 'auth') {
         // Redirect to login page after a short delay
         setTimeout(() => {
           window.location.href = '/login';
         }, 2000);
-      } else {
-        errorMessage += "Please try again later or check your internet connection.";
       }
 
       const errorResponse = {
@@ -241,9 +250,10 @@ const AiCoach = () => {
         isError: true,
         timestamp: new Date()
       };
-      
+
       setMessages(prev => [...prev, errorResponse]);
     } finally {
+      sendInFlightRef.current = false;
       setIsTyping(false);
     }
   };
@@ -377,19 +387,27 @@ const AiCoach = () => {
                 <Sparkles className="w-5 h-5 text-gray-900" />
                 <h3 className="font-semibold text-gray-900">Suggested Questions</h3>
               </div>
-              <div className="space-y-2 flex-1 overflow-y-auto">
-                {suggestedQuestions.map((question, index) => (
-                  <motion.button
-                    key={index}
-                    onClick={() => handleSuggestedQuestion(question)}
-                    whileHover={{ scale: 1.02 }}
-                    whileTap={{ scale: 0.98 }}
-                    className="w-full text-left p-3 text-sm text-gray-600 hover:text-gray-900 hover:bg-[#FFF8ED] rounded-lg transition-colors border border-gray-100 hover:border-[#EADFD0]"
-                  >
-                    {question}
-                  </motion.button>
-                ))}
-              </div>
+              {suggestionsLoading ? (
+                <div role="status" aria-label="Loading suggestions" className="space-y-2 flex-1">
+                  {[0, 1, 2, 3, 4].map((i) => (
+                    <div key={i} className="h-11 rounded-lg border border-gray-100 bg-[#FAF7F2] animate-pulse" />
+                  ))}
+                </div>
+              ) : (
+                <div className="space-y-2 flex-1 overflow-y-auto">
+                  {(Array.isArray(suggestedQuestions) ? suggestedQuestions : DEFAULT_SUGGESTIONS).map((question, index) => (
+                    <motion.button
+                      key={index}
+                      onClick={() => handleSuggestedQuestion(question)}
+                      whileHover={{ scale: 1.02 }}
+                      whileTap={{ scale: 0.98 }}
+                      className="w-full text-left p-3 text-sm text-gray-600 hover:text-gray-900 hover:bg-[#FFF8ED] rounded-lg transition-colors border border-gray-100 hover:border-[#EADFD0]"
+                    >
+                      {question}
+                    </motion.button>
+                  ))}
+                </div>
+              )}
             </div>
           </motion.div>
 
