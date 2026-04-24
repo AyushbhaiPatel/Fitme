@@ -1,0 +1,392 @@
+/**
+ * Unified Meal Plan Persistence Service
+ * Handles saving/loading meal plans via localStorage
+ */
+
+import axiosClient from '../../../services/api-service/axios-client';
+
+const STORAGE_KEYS = {
+  CURRENT_PLAN: 'current_meal_plan',
+  SAVED_PLANS: 'saved_meal_plans',
+  AUTO_SAVE: 'auto_saved_plan',
+  SYNC_STATUS: 'plans_sync_status'
+};
+
+class MealPlanPersistence {
+  constructor(axiosClient = null) {
+    this.maxLocalPlans = 5;
+    this.autoSaveInterval = null;
+    this.axiosClient = axiosClient;
+    // Migrate legacy keys to user namespace
+    try {
+      // Only migrate for logged-in users
+      const hasUser = !!localStorage.getItem('fitme_user');
+      if (hasUser) {
+        this.migrateLegacyKeys();
+      }
+    } catch {
+      // best-effort only
+    }
+  }
+
+  // Namespace helpers
+  getCurrentUserId() {
+    try {
+      const raw = localStorage.getItem('fitme_user');
+      if (!raw) return 'guest';
+      const user = JSON.parse(raw);
+      return user?.id || user?._id || 'guest';
+    } catch {
+      return 'guest';
+    }
+  }
+
+  getKey(baseKey) {
+    const userId = this.getCurrentUserId();
+    return `fitme:${userId}:${baseKey}`;
+  }
+
+  migrateLegacyKeys() {
+    const userScopedCurrent = this.getKey(STORAGE_KEYS.CURRENT_PLAN);
+    const userScopedSaved = this.getKey(STORAGE_KEYS.SAVED_PLANS);
+    const userScopedAuto = this.getKey(STORAGE_KEYS.AUTO_SAVE);
+    const userScopedSync = this.getKey(STORAGE_KEYS.SYNC_STATUS);
+
+    // Move legacy keys if user-scoped are empty
+    const legacyCurrent = localStorage.getItem(STORAGE_KEYS.CURRENT_PLAN);
+    const legacySaved = localStorage.getItem(STORAGE_KEYS.SAVED_PLANS);
+    const legacyAuto = localStorage.getItem(STORAGE_KEYS.AUTO_SAVE);
+    const legacySync = localStorage.getItem(STORAGE_KEYS.SYNC_STATUS);
+
+    if (legacyCurrent && !localStorage.getItem(userScopedCurrent)) {
+      localStorage.setItem(userScopedCurrent, legacyCurrent);
+      localStorage.removeItem(STORAGE_KEYS.CURRENT_PLAN);
+    }
+    if (legacySaved && !localStorage.getItem(userScopedSaved)) {
+      localStorage.setItem(userScopedSaved, legacySaved);
+      localStorage.removeItem(STORAGE_KEYS.SAVED_PLANS);
+    }
+    if (legacyAuto && !localStorage.getItem(userScopedAuto)) {
+      localStorage.setItem(userScopedAuto, legacyAuto);
+      localStorage.removeItem(STORAGE_KEYS.AUTO_SAVE);
+    }
+    if (legacySync && !localStorage.getItem(userScopedSync)) {
+      localStorage.setItem(userScopedSync, legacySync);
+      localStorage.removeItem(STORAGE_KEYS.SYNC_STATUS);
+    }
+  }
+
+  /**
+   * Save the current daily meal plan
+   * @param {Object} plan - The meal plan object
+   * @param {string} planName - Optional custom name for the plan
+   * @param {boolean} autoSave - Whether this is an auto-save
+   */
+  async savePlan(plan, planName = null, autoSave = false) {
+    try {
+      // Generate plan metadata
+      const timestamp = new Date().toISOString();
+      const savedPlan = {
+        id: `plan_${Date.now()}`,
+        name: planName || `Daily Plan - ${new Date().toLocaleDateString()}`,
+        meals: plan,
+        savedAt: timestamp,
+        isAutoSave: autoSave,
+        synced: false,
+        // Add nutritional summary for quick view
+        summary: this.generatePlanSummary(plan)
+      };
+
+      if (autoSave) {
+        // Auto-save to special slot
+        localStorage.setItem(this.getKey(STORAGE_KEYS.AUTO_SAVE), JSON.stringify(savedPlan));
+      } else {
+        // Save to regular saved plans
+        await this.addToSavedPlans(savedPlan);
+      }
+
+      // Update current plan
+      localStorage.setItem(this.getKey(STORAGE_KEYS.CURRENT_PLAN), JSON.stringify(savedPlan.meals));
+
+      return {
+        success: true,
+        message: autoSave ? 'Plan auto-saved' : 'Plan saved successfully',
+        planId: savedPlan.id
+      };
+
+    } catch (error) {
+      console.error('Error saving plan:', error);
+      return {
+        success: false,
+        message: 'Failed to save plan'
+      };
+    }
+  }
+
+  /**
+   * Load a specific saved plan
+   * @param {string} planId - The plan ID to load
+   */
+  async loadPlan(planId = null) {
+    try {
+      let plan = null;
+      if (planId) {
+        // Load specific plan
+        plan = await this.getSavedPlan(planId);
+      } else {
+        // Load most recent plan
+        plan = this.getCurrentPlan() || this.getAutoSavedPlan();
+      }
+      // If not found locally, return null
+      if (plan) {
+      // Get meals from plan
+        const mealsOnly = plan?.meals ? plan.meals : plan;
+        // Update current plan
+        localStorage.setItem(this.getKey(STORAGE_KEYS.CURRENT_PLAN), JSON.stringify(mealsOnly));
+        return {
+          success: true,
+          message: 'Plan loaded successfully',
+          data: mealsOnly,
+          metadata: {
+            name: plan.name || 'Current Plan',
+            savedAt: plan.savedAt || new Date().toISOString(),
+            summary: plan.summary
+          }
+        };
+      }
+      return {
+        success: false,
+        message: 'No saved plan found'
+      };
+    } catch (error) {
+      console.error('Error loading plan:', error);
+      return {
+        success: false,
+        message: 'Failed to load plan'
+      };
+    }
+  }
+
+  /**
+   * Get all saved plans for the user
+   */
+  getSavedPlans() {
+    try {
+      const localPlans = JSON.parse(localStorage.getItem(this.getKey(STORAGE_KEYS.SAVED_PLANS)) || '[]');
+      
+      // Sort by saved date (newest first)
+      return localPlans.sort((a, b) => new Date(b.savedAt) - new Date(a.savedAt));
+    } catch (error) {
+      console.error('Error getting saved plans:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Delete a saved plan
+   */
+  async deletePlan(planId) {
+    try {
+      // Delete from backend if axiosClient is available
+      if (this.axiosClient) {
+        try {
+          await this.axiosClient.delete(`/mealplans/${planId}`);
+        } catch (backendError) {
+          console.warn('Backend delete failed, continuing with local delete:', backendError.message);
+        }
+      }
+
+      // Delete from local storage
+      const savedPlans = this.getSavedPlans();
+      const updatedPlans = savedPlans.filter(plan => plan.id !== planId);
+      
+      localStorage.setItem(this.getKey(STORAGE_KEYS.SAVED_PLANS), JSON.stringify(updatedPlans));
+      
+      return {
+        success: true,
+        message: 'Plan deleted successfully'
+      };
+    } catch (error) {
+      console.error('Error deleting plan:', error);
+      return {
+        success: false,
+        message: 'Failed to delete plan'
+      };
+    }
+  }
+
+  /**
+   * Auto-save current plan (called periodically)
+   */
+  enableAutoSave(plan) {
+    if (plan && Object.keys(plan).length > 0) {
+      this.savePlan(plan, null, true);
+    }
+  }
+
+  /**
+   * Start auto-save timer
+   */
+  startAutoSave(getCurrentPlan, intervalMs = 30000) {
+    this.stopAutoSave(); // Clear existing interval
+    
+    this.autoSaveInterval = setInterval(() => {
+      const currentPlan = getCurrentPlan();
+      if (currentPlan && Object.keys(currentPlan).length > 0) {
+        this.enableAutoSave(currentPlan);
+      }
+    }, intervalMs);
+  }
+
+  /**
+   * Stop auto-save timer
+   */
+  stopAutoSave() {
+    if (this.autoSaveInterval) {
+      clearInterval(this.autoSaveInterval);
+      this.autoSaveInterval = null;
+    }
+  }
+
+  /**
+   * Restore plan on page load
+   */
+  restorePlan() {
+    // Restore latest plan from localStorage
+    let plan = null;
+    const currentPlanMeals = localStorage.getItem(this.getKey(STORAGE_KEYS.CURRENT_PLAN));
+    if (currentPlanMeals) {
+      try {
+        const parsed = JSON.parse(currentPlanMeals);
+        const mealsOnly = parsed && typeof parsed === 'object' && parsed.meals && typeof parsed.meals === 'object'
+          ? parsed.meals
+          : parsed;
+        plan = {
+          id: 'current',
+          name: 'Latest Generated Plan',
+          meals: mealsOnly,
+          savedAt: new Date().toISOString(),
+          isRestored: true
+        };
+      } catch {
+        // If parsing fails, clear the invalid entry
+        localStorage.removeItem(this.getKey(STORAGE_KEYS.CURRENT_PLAN));
+      }
+    }
+    // Fallback to previous logic if not found
+    if (!plan) {
+      plan = this.getCurrentPlan();
+    }
+    if (!plan) {
+      plan = this.getAutoSavedPlan();
+    }
+    if (!plan) {
+      const savedPlans = this.getSavedPlans();
+      if (savedPlans.length > 0) {
+        plan = savedPlans[0]; // Most recent
+      }
+    }
+    if (plan) {
+      return {
+        success: true,
+        data: plan.meals,
+        metadata: {
+          name: plan.name,
+          savedAt: plan.savedAt,
+          isRestored: true
+        }
+      };
+    }
+    return {
+      success: false,
+      message: 'No plan to restore'
+    };
+  }
+
+  /**
+   * Clear all saved data
+   */
+  clearAllData() {
+    Object.values(STORAGE_KEYS).forEach(key => {
+      localStorage.removeItem(this.getKey(key));
+    });
+    this.stopAutoSave();
+  }
+
+  // Private methods
+
+  getCurrentPlan() {
+    try {
+      const plan = localStorage.getItem(this.getKey(STORAGE_KEYS.CURRENT_PLAN));
+      return plan ? JSON.parse(plan) : null;
+    } catch {
+      return null;
+    }
+  }
+
+  getAutoSavedPlan() {
+    try {
+      const plan = localStorage.getItem(this.getKey(STORAGE_KEYS.AUTO_SAVE));
+      return plan ? JSON.parse(plan) : null;
+    } catch {
+      return null;
+    }
+  }
+
+  async getSavedPlan(planId) {
+    const savedPlans = this.getSavedPlans();
+    return savedPlans.find(plan => plan.id === planId) || null;
+  }
+
+  async addToSavedPlans(plan) {
+    const savedPlans = this.getSavedPlans();
+    
+    // Remove existing plan with same ID if any
+    const filteredPlans = savedPlans.filter(p => p.id !== plan.id);
+    
+    // Add new plan
+    filteredPlans.unshift(plan);
+    
+    // Limit to max plans
+    const limitedPlans = filteredPlans.slice(0, this.maxLocalPlans);
+    
+    localStorage.setItem(this.getKey(STORAGE_KEYS.SAVED_PLANS), JSON.stringify(limitedPlans));
+  }
+
+  generatePlanSummary(plan) {
+    const meals = Object.keys(plan).filter(key => 
+      plan[key] && plan[key].name && !key.includes('Total')
+    );
+    
+    let totalCalories = 0;
+    if (plan.dailyTotals && plan.dailyTotals.calories) {
+      totalCalories = Math.round(plan.dailyTotals.calories);
+    }
+
+    return {
+      mealCount: meals.length,
+      totalCalories,
+      mealTypes: meals,
+      hasNutrition: totalCalories > 0
+    };
+  }
+
+  /**
+   * Set the current plan meals without saving to saved plans
+   */
+  setCurrentPlanMeals(meals) {
+    try {
+      localStorage.setItem(this.getKey(STORAGE_KEYS.CURRENT_PLAN), JSON.stringify(meals));
+    } catch {
+      // ignore
+    }
+  }
+}
+
+// Create singleton instance with axiosClient
+export const mealPlanPersistence = new MealPlanPersistence(axiosClient);
+
+// Export class for testing
+export { MealPlanPersistence };
+
+export default mealPlanPersistence; 
