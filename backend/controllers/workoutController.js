@@ -1,246 +1,197 @@
 const User = require('../models/User');
 const WorkoutPlan = require('../models/WorkoutPlan');
+const { generateContent, isAvailable } = require('../services/geminiClient');
 
 const generateWorkoutPlan = async (req, res) => {
   try {
-    console.log('=== Backend Fallback Workout Plan Generation ===');
-    console.log('Note: Primary workout generation is handled by Gemini on the frontend');
-    
-    // This endpoint now serves as a fallback only
-    // The main workout generation is handled by Gemini API on the frontend
-    
     const userId = req.user._id || req.user.id;
-    console.log('User ID:', userId);
-    
     const user = await User.findById(userId);
-    console.log('User found:', user ? 'Yes' : 'No');
-    
+
     if (!user) {
-      console.log('❌ User not found in database');
-      return res.status(404).json({ 
-        success: false,
-        message: 'User not found' 
-      });
+      return res.status(404).json({ success: false, message: 'User not found' });
     }
 
-    // Extract user data for workout generation
+    // Merge profile from DB with any overrides from request body
+    const body = req.body || {};
+    const customOptions = body.customOptions || null;
     const userData = {
       goal: user.fitnessGoals?.[0] || 'general-fitness',
       weight: user.weight,
       height: user.height,
       age: calculateAge(user.dateOfBirth),
       gender: user.gender,
-      fitnessExperience: user.fitnessExperience || 'beginner',
-      preferredWorkouts: user.preferredWorkouts ? user.preferredWorkouts.split(',') : [],
+      fitnessExperience: body.fitnessExperience || user.fitnessExperience || 'beginner',
+      preferredWorkouts: user.preferredWorkouts ? user.preferredWorkouts.split(',').map(s => s.trim()) : [],
       dietaryPreference: user.dietaryPreference || 'none',
-      workoutFrequency: user.workoutFrequency || '3-4',
-      workoutDuration: user.workoutDuration || '30-45'
+      workoutFrequency: body.workoutFrequency || user.workoutFrequency || '3-4',
+      workoutDuration: body.workoutDuration || user.workoutDuration || '30-45',
     };
 
-    console.log('User data:', JSON.stringify(userData, null, 2));
+    const getWorkoutDays = (freq) => ({ '2-3': 3, '3-4': 4, '4-5': 5, '5-6': 6, 'daily': 7 }[freq] || 3);
+    const numberOfDays = getWorkoutDays(userData.workoutFrequency);
+    const duration = parseInt(userData.workoutDuration?.split('-')[1]) || 45;
 
-    // Determine duration per day from workout duration
-    let durationPerDay = 30; // Default
-    if (userData.workoutDuration) {
-      switch (userData.workoutDuration) {
-        case '15-30':
-          durationPerDay = 30;
-          break;
-        case '30-45':
-          durationPerDay = 45;
-          break;
-        case '45-60':
-          durationPerDay = 60;
-          break;
-        case '60-90':
-          durationPerDay = 90;
-          break;
-        case '90+':
-          durationPerDay = 120;
-          break;
-      }
+    if (!isAvailable()) {
+      return res.json({
+        success: true,
+        workoutPlan: getDemoWorkoutPlan(userData, numberOfDays, duration),
+        message: 'Demo workout plan (AI unavailable)',
+        isDemoMode: true,
+      });
     }
 
-    console.log('🔄 Providing fallback demo workout plan');
-    
-    const fallbackPlan = {
-      goal: mapGoalToDescription(userData.goal),
-      duration_per_day_minutes: durationPerDay,
-      preference: userData.preferredWorkouts.length > 0 ? userData.preferredWorkouts : ["Cardio", "Strength"],
-      days: [
-        {
-          day: "Day 1",
-          workout_type: "Full Body Cardio",
-          estimated_calories_burned: 250,
-          exercises: [
-            {
-              name: "Jumping Jacks",
-              type: "Cardio",
-              sets: 3,
-              reps: 20,
-              rest_between_sets_seconds: 30,
-              description: "Stand upright and jump while spreading your legs and arms; return to start position.",
-              calories_burned: 60
-            },
-            {
-              name: "Push-ups",
-              type: "Strength",
-              sets: 3,
-              reps: 10,
-              rest_between_sets_seconds: 45,
-              description: "Start in plank position, lower body until chest nearly touches floor, push back up.",
-              calories_burned: 50
-            },
-            {
-              name: "Bodyweight Squats",
-              type: "Strength",
-              sets: 3,
-              reps: 15,
-              rest_between_sets_seconds: 30,
-              description: "Stand with feet shoulder-width apart, bend knees and lower into a squat, then return.",
-              calories_burned: 70
-            },
-            {
-              name: "Mountain Climbers",
-              type: "Cardio",
-              sets: 3,
-              duration_seconds: 30,
-              rest_between_sets_seconds: 30,
-              description: "Start in plank position and rapidly alternate knees toward your chest.",
-              calories_burned: 70
-            }
-          ]
-        },
-        {
-          day: "Day 2",
-          workout_type: "Upper Body Focus",
-          estimated_calories_burned: 220,
-          exercises: [
-            {
-              name: "Arm Circles",
-              type: "Warm-up",
-              sets: 2,
-              reps: 15,
-              description: "Extend arms and make small circles, gradually increasing size.",
-              calories_burned: 20
-            },
-            {
-              name: "Pike Push-ups",
-              type: "Strength",
-              sets: 3,
-              reps: 8,
-              rest_between_sets_seconds: 45,
-              description: "Start in downward dog position, bend elbows to lower head toward floor.",
-              calories_burned: 60
-            },
-            {
-              name: "Tricep Dips",
-              type: "Strength",
-              sets: 3,
-              reps: 12,
-              rest_between_sets_seconds: 30,
-              description: "Sit on edge of chair, lower body by bending elbows, push back up.",
-              calories_burned: 50
-            },
-            {
-              name: "Plank Hold",
-              type: "Core",
-              sets: 3,
-              duration_seconds: 30,
-              rest_between_sets_seconds: 30,
-              description: "Hold straight-body position on elbows and toes, engaging core.",
-              calories_burned: 40
-            },
-            {
-              name: "Burpees",
-              type: "Cardio",
-              sets: 2,
-              reps: 8,
-              rest_between_sets_seconds: 60,
-              description: "Squat down, jump back to plank, do push-up, jump feet forward, jump up.",
-              calories_burned: 50
-            }
-          ]
-        },
-        {
-          day: "Day 3",
-          workout_type: "Lower Body & Core",
-          estimated_calories_burned: 280,
-          exercises: [
-            {
-              name: "Leg Swings",
-              type: "Warm-up",
-              sets: 2,
-              reps: 10,
-              description: "Hold wall for support, swing leg forward and back, then side to side.",
-              calories_burned: 15
-            },
-            {
-              name: "Lunges",
-              type: "Strength",
-              sets: 3,
-              reps: 12,
-              rest_between_sets_seconds: 30,
-              description: "Step forward into lunge position, lower back knee toward floor, return to start.",
-              calories_burned: 80
-            },
-            {
-              name: "Glute Bridges",
-              type: "Strength",
-              sets: 3,
-              reps: 15,
-              rest_between_sets_seconds: 30,
-              description: "Lie on back, feet flat on floor, lift hips by squeezing glutes.",
-              calories_burned: 45
-            },
-            {
-              name: "Wall Sit",
-              type: "Strength",
-              sets: 3,
-              duration_seconds: 30,
-              rest_between_sets_seconds: 45,
-              description: "Back against wall, slide down until thighs parallel to floor, hold position.",
-              calories_burned: 40
-            },
-            {
-              name: "High Knees",
-              type: "Cardio",
-              sets: 3,
-              duration_seconds: 30,
-              rest_between_sets_seconds: 30,
-              description: "Jog in place while lifting knees as high as possible.",
-              calories_burned: 60
-            },
-            {
-              name: "Russian Twists",
-              type: "Core",
-              sets: 3,
-              reps: 20,
-              rest_between_sets_seconds: 30,
-              description: "Sit with knees bent, lean back slightly, rotate torso side to side.",
-              calories_burned: 40
-            }
-          ]
-        }
-      ]
-    };
+    try {
+      const prompt = buildWorkoutPrompt(userData, numberOfDays, duration, customOptions);
+      const raw = await generateContent(prompt);
+      const workoutPlan = parseWorkoutResponse(raw, numberOfDays);
 
-    return res.json({
-      success: true,
-      workoutPlan: fallbackPlan,
-      message: 'Fallback workout plan generated (Gemini primary method)',
-      isDemoMode: true
-    });
-
+      return res.json({ success: true, workoutPlan, isAIGenerated: true, isDemoMode: false });
+    } catch (aiErr) {
+      console.error('Gemini workout generation failed, using demo:', aiErr.message);
+      return res.json({
+        success: true,
+        workoutPlan: getDemoWorkoutPlan(userData, numberOfDays, duration),
+        message: 'Demo workout plan (AI generation failed)',
+        isDemoMode: true,
+      });
+    }
   } catch (error) {
-    console.error('❌ Error generating workout plan:', error.message);
-    
+    console.error('Workout generation error:', error.message);
     res.status(500).json({
       success: false,
       message: 'Failed to generate workout plan',
-      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error',
     });
   }
+};
+
+const buildWorkoutPrompt = (userData, numberOfDays, duration, customOptions) => {
+  const dayLabels = Array.from({ length: numberOfDays }, (_, i) => `Day ${i + 1}`);
+  const focusArea = customOptions?.focusArea || '';
+  const intensity = customOptions?.intensity || '';
+  const equipment = customOptions?.equipment || '';
+  const specificGoals = customOptions?.specificGoals || '';
+
+  return `You are an expert fitness trainer. Create a personalized ${numberOfDays}-day workout plan.
+
+USER PROFILE:
+- Primary Goal: ${userData.goal}
+- Activity Level: moderately-active
+- Experience: ${userData.fitnessExperience}
+- Preferred Workouts: ${userData.preferredWorkouts.join(', ') || 'varied'}
+- Frequency: ${userData.workoutFrequency} times/week
+- Session Duration: ${duration} minutes
+- Height: ${userData.height || 'N/A'} cm, Weight: ${userData.weight || 'N/A'} kg
+- Age: ${userData.age || 'N/A'}, Gender: ${userData.gender || 'N/A'}
+${focusArea ? `- Focus Area: ${focusArea}` : ''}
+${intensity ? `- Intensity: ${intensity}` : ''}
+${equipment ? `- Equipment: ${equipment}` : ''}
+${specificGoals ? `- Special Instructions: ${specificGoals}` : ''}
+
+Create exactly ${numberOfDays} workout days (${dayLabels.join(', ')}). Each day: 4-8 exercises with sets, reps (numbers only, no ranges), rest periods, calorie estimates, and detailed descriptions.
+
+Return ONLY valid JSON:
+{
+  "name": "Plan Name",
+  "goal": "Goal",
+  "duration_per_day_minutes": ${duration},
+  "preference": ["type1"],
+  "frequency": "${userData.workoutFrequency}",
+  "days": [
+    {
+      "day": "Day 1",
+      "workout_type": "Type",
+      "estimated_calories_burned": 300,
+      "exercises": [
+        {
+          "name": "Exercise",
+          "type": "Strength",
+          "sets": 3,
+          "reps": 12,
+          "duration_minutes": 0,
+          "duration_seconds": 0,
+          "rest_between_sets_seconds": 60,
+          "calories_burned": 50,
+          "description": "Detailed description."
+        }
+      ]
+    }
+  ]
+}
+
+CRITICAL: All numeric fields must be numbers. No ranges like "8-12". Use null for reps if time-based.`;
+};
+
+const parseWorkoutResponse = (text, expectedDays) => {
+  const jsonMatch = text.match(/\{[\s\S]*\}/);
+  if (!jsonMatch) throw new Error('No JSON in response');
+
+  let jsonText = jsonMatch[0];
+  // Fix common issues
+  jsonText = jsonText.replace(/"reps":\s*"([^"]+)"/g, (_, v) => {
+    if (v.includes('-')) {
+      const parts = v.split('-');
+      return `"reps": ${Math.round((parseInt(parts[0]) + parseInt(parts[1])) / 2)}`;
+    }
+    const n = parseInt(v);
+    return `"reps": ${isNaN(n) ? 'null' : n}`;
+  });
+  jsonText = jsonText.replace(/"sets":\s*"(\d+)"/g, (_, v) => `"sets": ${parseInt(v)}`);
+  jsonText = jsonText.replace(/"calories_burned":\s*"(\d+)"/g, (_, v) => `"calories_burned": ${parseInt(v)}`);
+  jsonText = jsonText.replace(/"estimated_calories_burned":\s*"(\d+)"/g, (_, v) => `"estimated_calories_burned": ${parseInt(v)}`);
+
+  const plan = JSON.parse(jsonText);
+  if (!plan.days || !Array.isArray(plan.days)) throw new Error('Invalid plan structure');
+
+  plan.days = plan.days.map((day, i) => ({
+    day: day.day || `Day ${i + 1}`,
+    workout_type: day.workout_type || 'Mixed Training',
+    estimated_calories_burned: typeof day.estimated_calories_burned === 'number' ? day.estimated_calories_burned : 300,
+    exercises: (day.exercises || []).map((ex) => ({
+      name: ex.name || 'Exercise',
+      type: ex.type || 'General',
+      sets: typeof ex.sets === 'number' ? ex.sets : 3,
+      reps: typeof ex.reps === 'number' ? ex.reps : null,
+      duration_minutes: typeof ex.duration_minutes === 'number' && ex.duration_minutes > 0 ? ex.duration_minutes : null,
+      duration_seconds: typeof ex.duration_seconds === 'number' && ex.duration_seconds > 0 ? ex.duration_seconds : null,
+      rest_between_sets_seconds: typeof ex.rest_between_sets_seconds === 'number' ? ex.rest_between_sets_seconds : 60,
+      calories_burned: typeof ex.calories_burned === 'number' ? ex.calories_burned : 50,
+      description: ex.description || '',
+    })),
+  }));
+
+  return plan;
+};
+
+const getDemoWorkoutPlan = (userData, numberOfDays, duration) => {
+  const days = [];
+  const types = numberOfDays <= 3
+    ? ['Full Body Strength', 'Cardio & Core', 'Upper & Lower Body']
+    : ['Upper Body', 'Lower Body', 'Cardio & Core', 'Full Body Circuit', 'Active Recovery', 'Push Day', 'Pull Day'];
+
+  const demoExercises = [
+    { name: 'Push-ups', type: 'Strength', sets: 3, reps: 12, rest_between_sets_seconds: 60, calories_burned: 50, description: 'Standard push-ups from plank position.' },
+    { name: 'Bodyweight Squats', type: 'Strength', sets: 3, reps: 15, rest_between_sets_seconds: 60, calories_burned: 60, description: 'Squat with feet shoulder-width apart.' },
+    { name: 'Plank Hold', type: 'Core', sets: 3, reps: null, duration_seconds: 30, rest_between_sets_seconds: 45, calories_burned: 40, description: 'Hold plank on forearms.' },
+  ];
+
+  for (let i = 0; i < numberOfDays; i++) {
+    days.push({
+      day: `Day ${i + 1}`,
+      workout_type: types[i % types.length],
+      estimated_calories_burned: 250,
+      exercises: demoExercises,
+    });
+  }
+
+  return {
+    name: `Demo ${numberOfDays}-Day Plan`,
+    goal: mapGoalToDescription(userData.goal),
+    duration_per_day_minutes: duration,
+    preference: userData.preferredWorkouts.length > 0 ? userData.preferredWorkouts : ['Mixed Training'],
+    frequency: userData.workoutFrequency,
+    days,
+  };
 };
 
 const calculateAge = (dateOfBirth) => {

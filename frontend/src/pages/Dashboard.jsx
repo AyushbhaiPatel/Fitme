@@ -18,7 +18,7 @@ const Dashboard = () => {
       try {
         const res = await userAPI.getUserStats();
         setStats(res?.data?.stats || {});
-      } catch (e) {
+      } catch {
         setStats({});
       }
     }

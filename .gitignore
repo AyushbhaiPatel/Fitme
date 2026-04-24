@@ -24,8 +24,6 @@ backend/.env
 # backend/.env.*
 frontend/.env
 # frontend/.env.*
-fastapi_backend/.env
-# fastapi_backend/.env.*
 
 # OS generated files
 .DS_Store
@@ -38,12 +36,6 @@ Thumbs.db
 *.sublime-project
 
 # Python
-fastapi_backend/__pycache__/
-fastapi_backend/**/__pycache__/
-fastapi_backend/.pytest_cache/
-fastapi_backend/.mypy_cache/
-fastapi_backend/.venv/
-fastapi_backend/venv/
 *.pyc
 *.pyo
 *.pyd
@@ -88,7 +80,6 @@ coverage/
 # pnpm-lock.yaml
 # frontend/package-lock.json
 # backend/package-lock.json
-# fastapi_backend/poetry.lock 
 
 # Ignore all files in the .yoyo folder
 .yoyo/

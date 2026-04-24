@@ -38,34 +38,6 @@ const Summary = ({ prevStep, values }) => {
     setLoading(true);
     
     try {
-      // Get goal-specific required fields
-      const getRequiredFieldsForGoal = (goalType) => {
-        const baseRequiredFields = {
-          goal: goal,
-          gender: gender,
-          birthday: birthday,
-          height: height,
-          currentWeight: currentWeight,
-          location: location
-        };
-
-        // Add goal-specific required fields
-        const goalSpecificFields = {
-          'lose': { goalWeight: goalWeight },
-          'gain': { goalWeight: goalWeight },
-          'muscle': {}, // Current weight is sufficient for muscle building
-          'strength': {},
-          'maintain': {} // No additional required fields for maintain
-        };
-
-        return {
-          ...baseRequiredFields,
-          ...(goalSpecificFields[goalType] || {})
-        };
-      };
-
-      const requiredFields = getRequiredFieldsForGoal(goal);
-
       // Map onboarding data to backend profile format
       const getProfileDataForGoal = (goalType) => {
         const baseProfileData = {
@@ -133,8 +105,8 @@ const Summary = ({ prevStep, values }) => {
       // No required fields check after removal of certain fields
 
       // Update profile on backend
-      const result = await dispatch(updateUserProfile(profileData)).unwrap();
-      console.log('Profile update result:', result);
+      await dispatch(updateUserProfile(profileData)).unwrap();
+      console.log('Profile update succeeded');
       
       navigate('/dashboard');
     } catch (error) {
@@ -147,7 +119,7 @@ const Summary = ({ prevStep, values }) => {
       
       // Log each validation error in a readable table (backend now returns value & kind)
       if (error.response?.data?.errors?.length) {
-        // eslint-disable-next-line no-console
+         
         console.table(error.response.data.errors);
       }
       

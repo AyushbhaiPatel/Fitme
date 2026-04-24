@@ -1,11 +1,11 @@
-import React, { useState, useEffect } from 'react';
-import { FiRefreshCw, FiSave, FiBook, FiFolder, FiSettings, FiZap, FiChevronDown, FiChevronUp } from 'react-icons/fi';
+import React, { useState } from 'react';
+import { FiRefreshCw, FiSave, FiFolder, FiSettings, FiZap } from 'react-icons/fi';
 import { mealPlanAPI, mealPlanUtils } from '../services/mealPlanAPI';
 import { useToast } from '../hooks/useToast';
 import useMealPlanPersistence from '../hooks/useMealPlanPersistence';
 import MealPlanSaveLoad from './MealPlanSaveLoad';
 
-const DailyMealPlanGenerator = ({ onPlanGenerated, currentDayPlan, currentPlan, setCurrentPlan, token }) => {
+const DailyMealPlanGenerator = ({ onPlanGenerated, currentDayPlan }) => {
   const [isGenerating, setIsGenerating] = useState(false);
   const [showAdvancedOptions, setShowAdvancedOptions] = useState(false);
   const [showSaveLoadModal, setShowSaveLoadModal] = useState(false);
@@ -23,8 +23,6 @@ const DailyMealPlanGenerator = ({ onPlanGenerated, currentDayPlan, currentPlan, 
   // Use the new persistence hook
   const {
     savePlan,
-    loadPlan,
-    getSavedPlans,
     getPersistenceStatus
   } = useMealPlanPersistence(currentDayPlan, onPlanGenerated, {
     autoSaveEnabled: true,

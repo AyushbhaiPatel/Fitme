@@ -72,7 +72,7 @@ export const registerUser = createAsyncThunk(
 
 export const logoutUser = createAsyncThunk(
   'auth/logout',
-  async (_, { rejectWithValue }) => {
+  async () => {
     try {
       await authAPI.logout();
       
@@ -82,7 +82,7 @@ export const logoutUser = createAsyncThunk(
       localStorage.removeItem('fitme_user');
       
       return true;
-    } catch (error) {
+    } catch {
       // Even if logout fails on server, clear local data
       apiUtils.removeAuthToken();
       localStorage.removeItem('fitme_refresh_token');

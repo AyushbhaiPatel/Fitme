@@ -8,7 +8,8 @@ require('dotenv').config();
 const authRoutes = require('./routes/auth');
 const userRoutes = require('./routes/user');
 const workoutRoutes = require('./routes/workouts');
-// aiCoachRoutes removed - functionality moved to FastAPI backend
+const aiCoachRoutes = require('./routes/aiCoach');
+const mealplanRoutes = require('./routes/mealplan');
 
 const app = express();
 
@@ -41,7 +42,8 @@ app.use(express.urlencoded({ extended: true }));
 app.use('/api/auth', authRoutes);
 app.use('/api/user', userRoutes);
 app.use('/api/workouts', workoutRoutes);
-// AI Coach functionality moved to FastAPI backend
+app.use('/api/aicoach', aiCoachRoutes);
+app.use('/api/mealplan', mealplanRoutes);
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {

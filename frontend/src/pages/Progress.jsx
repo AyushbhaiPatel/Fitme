@@ -23,42 +23,7 @@ const Progress = () => {
   const [selectedIntakeMetric, setSelectedIntakeMetric] = useState('calories'); // calories | protein | carbs | fat
   const { user } = useAuth();
   const [workoutStats, setWorkoutStats] = useState(null);
-  const [weeklyData, setWeeklyData] = useState({ calories: [], workouts: [] });
   const [periodData, setPeriodData] = useState({ calories: [], workouts: [], eatenCalories: [], eatenProtein: [], eatenCarbs: [], eatenFat: [] });
-
-  const exportSvgAsPng = (svgElement, fileName) => {
-    try {
-      const serializer = new XMLSerializer();
-      let source = serializer.serializeToString(svgElement);
-      if (!source.match(/^<svg[^>]+xmlns="http:\/\/www\.w3\.org\/2000\/svg"/)) {
-        source = source.replace(/^<svg/, '<svg xmlns="http://www.w3.org/2000/svg"');
-      }
-      if (!source.match(/^<svg[^>]+xmlns:xlink="http:\/\/www\.w3\.org\/1999\/xlink"/)) {
-        source = source.replace(/^<svg/, '<svg xmlns:xlink="http://www.w3.org/1999/xlink"');
-      }
-      const svgData = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(source);
-      const image = new Image();
-      const width = parseInt(svgElement.getAttribute('width') || (svgElement.viewBox && svgElement.viewBox.baseVal.width) || 1200, 10);
-      const height = parseInt(svgElement.getAttribute('height') || (svgElement.viewBox && svgElement.viewBox.baseVal.height) || 600, 10);
-      image.onload = () => {
-        const canvas = document.createElement('canvas');
-        canvas.width = width;
-        canvas.height = height;
-        const context = canvas.getContext('2d');
-        context.fillStyle = '#ffffff';
-        context.fillRect(0, 0, canvas.width, canvas.height);
-        context.drawImage(image, 0, 0);
-        const png = canvas.toDataURL('image/png');
-        const link = document.createElement('a');
-        link.download = fileName;
-        link.href = png;
-        link.click();
-      };
-      image.src = svgData;
-    } catch (err) {
-      console.error('Export failed', err);
-    }
-  };
 
   useEffect(() => {
     let isMounted = true;
@@ -66,7 +31,7 @@ const Progress = () => {
       try {
         const stats = await workoutAPI.getWorkoutStatistics();
         if (isMounted) setWorkoutStats(stats.statistics || stats);
-      } catch (e) {
+      } catch {
         // Fail silently; UI will show zeros
         if (isMounted) setWorkoutStats(null);
       }
@@ -95,7 +60,7 @@ const Progress = () => {
         formatLabel = (d) => d.toLocaleDateString(undefined, { weekday: 'short' });
         break;
       
-      case 'month':
+      case 'month': {
         const today = new Date();
         const year = today.getFullYear();
         const month = today.getMonth();
@@ -113,7 +78,6 @@ const Progress = () => {
         // Generate weeks that contain days of this month
         days = [];
         let currentWeekStart = new Date(firstMonday);
-        let weekNumber = 1;
         
         while (currentWeekStart <= lastDayOfMonth) {
           const weekEnd = new Date(currentWeekStart);
@@ -122,13 +86,12 @@ const Progress = () => {
           // Check if this week contains any days from the current month
           if (weekEnd >= firstDayOfMonth && currentWeekStart <= lastDayOfMonth) {
             days.push(new Date(currentWeekStart));
-            weekNumber++;
           }
           
           currentWeekStart.setDate(currentWeekStart.getDate() + 7);
         }
         
-        formatLabel = (d, index) => {
+        formatLabel = (d) => {
           if (period === 'month') {
             const weekStart = new Date(d);
             const weekEnd = new Date(d);
@@ -157,13 +120,12 @@ const Progress = () => {
         };
         ymdKey = (d) => {
           const weekStart = new Date(d);
-          const weekEnd = new Date(d);
-          weekEnd.setDate(weekStart.getDate() + 6);
           return `${year}-${String(month + 1).padStart(2, '0')}-W${weekStart.getTime()}`;
         };
         break;
+      }
       
-      case 'quarter':
+      case 'quarter': {
         days = Array.from({ length: 4 }, (_, i) => {
           const d = new Date(new Date().getFullYear(), i * 3, 1); // First month of each quarter
           d.setHours(0, 0, 0, 0);
@@ -172,8 +134,9 @@ const Progress = () => {
         formatLabel = (d) => `Q${Math.floor(d.getMonth() / 3) + 1}`;
         ymdKey = (d) => `${d.getFullYear()}-Q${Math.floor(d.getMonth() / 3) + 1}`;
         break;
+      }
       
-      case 'year':
+      case 'year': {
         days = Array.from({ length: 12 }, (_, i) => {
           const d = new Date(new Date().getFullYear(), i, 1);
           d.setHours(0, 0, 0, 0);
@@ -182,6 +145,7 @@ const Progress = () => {
         formatLabel = (d) => d.toLocaleDateString(undefined, { month: 'short' });
         ymdKey = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
         break;
+      }
       
       default:
         return { calories: [], workouts: [], eatenCalories: [], eatenProtein: [], eatenCarbs: [], eatenFat: [] };
@@ -273,7 +237,7 @@ const Progress = () => {
       nutrition = {};
     }
 
-    const aggregateNutrition = (date, keyBuilder) => {
+    const aggregateNutrition = (date) => {
       // Returns totals for calories, protein, carbs, fat for given period bucket
       if (period === 'quarter') {
         const relevantDays = Object.keys(nutrition).filter(nk => {
@@ -367,21 +331,11 @@ const Progress = () => {
     };
   }, [user]);
 
-  // Build dynamic weekly data from user history (workouts and burned calories)
-  const rebuildWeeklyData = useCallback(() => {
-    const weekData = buildPeriodData('week');
-    setWeeklyData(weekData);
-  }, [buildPeriodData]);
-
   // Build data for selected period
   const rebuildPeriodData = useCallback(() => {
     const data = buildPeriodData(selectedPeriod);
     setPeriodData(data);
   }, [buildPeriodData, selectedPeriod]);
-
-  useEffect(() => {
-    rebuildWeeklyData();
-  }, [rebuildWeeklyData]);
 
   useEffect(() => {
     rebuildPeriodData();
@@ -390,7 +344,6 @@ const Progress = () => {
   // Refresh when workout-related events fire
   useEffect(() => {
     const handler = () => {
-      rebuildWeeklyData();
       rebuildPeriodData();
     };
     window.addEventListener('dailyTasksUpdated', handler);
@@ -399,9 +352,7 @@ const Progress = () => {
       window.removeEventListener('dailyTasksUpdated', handler);
       window.removeEventListener('workoutStatsUpdated', handler);
     };
-  }, [rebuildWeeklyData, rebuildPeriodData]);
-
-  // weeklyData is built dynamically above from user history
+  }, [rebuildPeriodData]);
 
   const monthlyProgress = {
     currentWeight: user?.weight ?? 0,
@@ -412,26 +363,6 @@ const Progress = () => {
     averageWorkoutTime: workoutStats?.averageWorkoutTimeMinutes ?? 0,
     longestStreak: user?.longestStreak ?? 0
   };
-
-  // Goals (dynamic)
-  const fitnessGoal = Array.isArray(user?.fitnessGoals) && user.fitnessGoals.length > 0 ? user.fitnessGoals[0] : null;
-  const workoutHistory = Array.isArray(user?.workoutHistory) ? user.workoutHistory : [];
-
-  const getMonthlyWorkoutCount = () => {
-    const now = new Date();
-    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-    const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-    
-    return workoutHistory.filter(w => {
-      if (!w.completedAt) return false;
-      const completedAt = new Date(w.completedAt);
-      return completedAt >= startOfMonth && completedAt <= endOfMonth;
-    }).length;
-  };
-
-  const monthlyWorkouts = getMonthlyWorkoutCount();
-  const monthlyWorkoutTarget = user?.workoutFrequency ? parseInt(user.workoutFrequency) * 4 : 12; // Assume 4 weeks per month
-  const monthlyWorkoutProgress = monthlyWorkoutTarget > 0 ? Math.round((monthlyWorkouts / monthlyWorkoutTarget) * 100) : 0;
 
   // Animation variants
   const pageVariant = {

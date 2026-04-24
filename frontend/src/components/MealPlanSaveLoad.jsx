@@ -3,7 +3,7 @@ import { FiTrash2, FiClock, FiUsers, FiX, FiUpload, FiFolder, FiAlertTriangle } 
 import mealPlanPersistence from '../services/mealPlanPersistence';
 import { useToast } from '../hooks/useToast';
 
-const MealPlanSaveLoad = ({ currentPlan, onPlanLoaded, isVisible, onClose }) => {
+const MealPlanSaveLoad = ({ onPlanLoaded, isVisible, onClose }) => {
   const [savedPlans, setSavedPlans] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState({ isOpen: false, planId: null, planName: '' });
@@ -34,7 +34,7 @@ const MealPlanSaveLoad = ({ currentPlan, onPlanLoaded, isVisible, onClose }) => 
       } else {
         showToast('error', result.message);
       }
-    } catch (error) {
+    } catch {
       showToast('error', 'Failed to load plan');
     } finally {
       setIsLoading(false);
@@ -57,7 +57,7 @@ const MealPlanSaveLoad = ({ currentPlan, onPlanLoaded, isVisible, onClose }) => 
       } else {
         showToast('error', result.message);
       }
-    } catch (error) {
+    } catch {
       showToast('error', 'Failed to delete plan');
     } finally {
       setDeleteConfirm({ isOpen: false, planId: null, planName: '' });
@@ -79,10 +79,6 @@ const MealPlanSaveLoad = ({ currentPlan, onPlanLoaded, isVisible, onClose }) => 
       minute: '2-digit'
     });
   };
-
-  const hasCurrentPlan = currentPlan && Object.keys(currentPlan).some(key => 
-    currentPlan[key]?.name && !key.includes('Total')
-  );
 
   if (!isVisible) return null;
 

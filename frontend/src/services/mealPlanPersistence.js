@@ -1,9 +1,7 @@
 /**
  * Unified Meal Plan Persistence Service
- * Handles saving/loading meal plans with hybrid localStorage + backend storage
+ * Handles saving/loading meal plans via localStorage
  */
-
-import { mealPlanAPI } from './mealPlanAPI';
 
 const STORAGE_KEYS = {
   CURRENT_PLAN: 'current_meal_plan',
@@ -14,8 +12,7 @@ const STORAGE_KEYS = {
 
 class MealPlanPersistence {
   constructor() {
-    this.syncInProgress = false;
-    this.maxLocalPlans = 5; // Limit local storage
+    this.maxLocalPlans = 5;
     this.autoSaveInterval = null;
     // Migrate any legacy, non-namespaced keys to the current user's namespace
     try {
@@ -108,11 +105,6 @@ class MealPlanPersistence {
       // Always update current plan (store only meals for consistency)
       localStorage.setItem(this.getKey(STORAGE_KEYS.CURRENT_PLAN), JSON.stringify(savedPlan.meals));
 
-      // Attempt backend sync (non-blocking)
-      this.syncToBackend(savedPlan).catch(error => {
-        console.warn('Backend sync failed, plan saved locally:', error.message);
-      });
-
       return {
         success: true,
         message: autoSave ? 'Plan auto-saved' : 'Plan saved successfully',
@@ -142,8 +134,7 @@ class MealPlanPersistence {
         // Load most recent plan (current or auto-saved)
         plan = this.getCurrentPlan() || this.getAutoSavedPlan();
       }
-      // If not found locally, fetch from backend
-      // No backend fetch here: FastAPI saves on generation; listing is handled via dedicated UI flows
+      // If not found locally, return null
       if (plan) {
         // Determine meals shape (plan may already be just meals)
         const mealsOnly = plan?.meals ? plan.meals : plan;
@@ -317,7 +308,7 @@ class MealPlanPersistence {
     try {
       const plan = localStorage.getItem(this.getKey(STORAGE_KEYS.CURRENT_PLAN));
       return plan ? JSON.parse(plan) : null;
-    } catch (error) {
+    } catch {
       return null;
     }
   }
@@ -326,7 +317,7 @@ class MealPlanPersistence {
     try {
       const plan = localStorage.getItem(this.getKey(STORAGE_KEYS.AUTO_SAVE));
       return plan ? JSON.parse(plan) : null;
-    } catch (error) {
+    } catch {
       return null;
     }
   }
@@ -367,59 +358,6 @@ class MealPlanPersistence {
       mealTypes: meals,
       hasNutrition: totalCalories > 0
     };
-  }
-
-  async syncToBackend(plan) {
-    if (this.syncInProgress) return;
-    
-    try {
-      this.syncInProgress = true;
-      const token = localStorage.getItem('fitme_token');
-      if (!token) throw new Error('No authentication token');
-
-      // Convert to backend format
-      const backendPlan = {
-        id: plan.id,
-        user_id: 'current_user', // Will be set by backend
-        meals: this.convertToBackendFormat(plan.meals),
-        created_at: plan.savedAt,
-        preferences: {}
-      };
-
-      // No explicit save endpoint in FastAPI; saving occurs during generation
-      // Mark as unsynced; UI remains fully functional with local saves
-
-    } catch (error) {
-      console.warn('Backend sync failed:', error);
-    } finally {
-      this.syncInProgress = false;
-    }
-  }
-
-  convertToBackendFormat(meals) {
-    // Convert frontend meal format to backend format
-    return {
-      breakfast: meals.breakfast || null,
-      lunch: meals.lunch || null,
-      dinner: meals.dinner || null,
-      snack: meals.snack || null,
-      total_calories: meals.dailyTotals?.calories || 0,
-      total_protein: meals.dailyTotals?.protein || 0,
-      total_carbs: meals.dailyTotals?.carbs || 0,
-      total_fat: meals.dailyTotals?.fat || 0
-    };
-  }
-
-  updateSyncStatus(planId, synced) {
-    try {
-      const savedPlans = this.getSavedPlans();
-      const updatedPlans = savedPlans.map(plan => 
-        plan.id === planId ? { ...plan, synced } : plan
-      );
-      localStorage.setItem(this.getKey(STORAGE_KEYS.SAVED_PLANS), JSON.stringify(updatedPlans));
-    } catch (error) {
-      console.error('Error updating sync status:', error);
-    }
   }
 
   /**

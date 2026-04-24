@@ -63,7 +63,7 @@ const AiCoach = () => {
   const [suggestedQuestions, setSuggestedQuestions] = useState([]);
   const [showRecipes, setShowRecipes] = useState(false);
   const [currentRecipes, setCurrentRecipes] = useState(null);
-  const [error, setError] = useState(null);
+  const [, setError] = useState(null);
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
 
@@ -140,21 +140,8 @@ const AiCoach = () => {
     } catch (error) {
       console.error('Error fetching suggestions:', error);
       
-      // If 401 error, try using bypass endpoint temporarily
+      // If 401 error, set error message
       if (error.response?.status === 401) {
-        console.error('Authentication failed - trying bypass endpoint');
-        try {
-          const bypassResponse = await fetch('http://localhost:8000/api/aicoach/suggestions-bypass');
-          if (bypassResponse.ok) {
-            const data = await bypassResponse.json();
-            if (data.success) {
-              setSuggestedQuestions(data.suggestions);
-              return;
-            }
-          }
-        } catch (bypassError) {
-          console.error('Bypass endpoint also failed:', bypassError);
-        }
         setError('Please login to access AI Coach features');
       }
       
@@ -203,7 +190,7 @@ const AiCoach = () => {
         content: msg.content
       }));
 
-      // Call the AI Coach API through FastAPI backend
+      // Call the AI Coach API
       const response = await aiCoachAPI.chat(inputMessage, conversationHistory);
 
       if (response.success) {
@@ -255,7 +242,6 @@ const AiCoach = () => {
       };
       
       setMessages(prev => [...prev, errorResponse]);
-      setError(errorMessage);
     } finally {
       setIsTyping(false);
     }

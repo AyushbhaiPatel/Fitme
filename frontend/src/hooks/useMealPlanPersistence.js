@@ -17,7 +17,6 @@ export const useMealPlanPersistence = (currentPlan, setPlan, options = {}) => {
   } = options;
 
   const { showToast } = useToast();
-  const autoSaveRef = useRef(null);
   const lastSavedRef = useRef(null);
   const isRestoringRef = useRef(false);
 
@@ -42,7 +41,9 @@ export const useMealPlanPersistence = (currentPlan, setPlan, options = {}) => {
             if (hasExistingMeals) {
               return; // skip restore to avoid overwriting user changes
             }
-          } catch {}
+          } catch {
+            return;
+          }
 
           setPlan(result.data);
           

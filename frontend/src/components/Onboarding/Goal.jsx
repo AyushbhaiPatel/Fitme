@@ -40,8 +40,6 @@ const Goal = ({ nextStep, handleChange, values }) => {
     }
   ];
 
-  const categories = [...new Set(fitnessGoals.map(goal => goal.category))];
-
   const handleGoalSelect = (goalId) => {
     handleChange('goal')({ target: { value: goalId } });
   };
